@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+.terraform/
 
 # debug
 npm-debug.log*
