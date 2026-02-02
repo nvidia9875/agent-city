@@ -1,65 +1,70 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#22314e,_#0b1018_58%,_#070a10)] text-slate-100">
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-16">
+        <header className="flex flex-wrap items-center justify-between gap-4 text-sm text-slate-300">
+          <p className="uppercase tracking-[0.4em]">AgentTown</p>
+          <span className="rounded-full border border-slate-700/60 bg-slate-900/60 px-4 py-1 text-xs">
+            災害対応リハーサル・デモ
+          </span>
+        </header>
+
+        <main className="mt-16 grid flex-1 gap-12 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-6">
+            <h1 className="text-4xl font-semibold leading-tight text-slate-100 md:text-5xl">
+              災害前の「もしも」を、先に体験する。
+            </h1>
+            <p className="max-w-xl text-lg text-slate-300">
+              AgentTownは、噂・公式情報・避難行動の広がりを
+              アイソメ視点で可視化する災害訓練シミュレーションです。
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <Link
+                href="/sim"
+                className="rounded-full bg-emerald-400 px-6 py-3 text-sm font-semibold text-slate-900 transition hover:bg-emerald-300"
+              >
+                デモを開始
+              </Link>
+              <div className="rounded-full border border-slate-700/70 bg-slate-900/60 px-6 py-3 text-sm text-slate-300">
+                R3F + Next.js + Vertex AI
+              </div>
+            </div>
+          </div>
+          <div className="rounded-3xl border border-slate-800/60 bg-slate-950/70 p-6 shadow-[0_25px_60px_rgba(8,12,18,0.6)] backdrop-blur">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
+              災害リハーサルの概要
+            </h2>
+            <div className="mt-6 space-y-5 text-sm text-slate-300">
+              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  街のビュー
+                </p>
+                <p className="mt-2 text-slate-200">
+                  アイソメ格子、道路インスタンス、避難拠点を描画。
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  住人の動き
+                </p>
+                <p className="mt-2 text-slate-200">
+                  10〜30人の住民が噂・公式情報で行動を変えます。
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                  運用UI
+                </p>
+                <p className="mt-2 text-slate-200">
+                  タイムライン、メトリクス、介入を集約。
+                </p>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
