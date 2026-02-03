@@ -23,3 +23,28 @@ output "db_password" {
   description = "Database password"
   sensitive   = true
 }
+
+output "vector_index_id" {
+  value       = google_vertex_ai_index.vector_index.id
+  description = "Vertex AI Vector Search index resource id"
+}
+
+output "vector_index_display_name" {
+  value       = google_vertex_ai_index.vector_index.display_name
+  description = "Vertex AI Vector Search index display name"
+}
+
+output "vector_index_region" {
+  value       = google_vertex_ai_index.vector_index.region
+  description = "Vertex AI Vector Search index region"
+}
+
+output "vector_index_endpoint_id" {
+  value       = google_vertex_ai_index_endpoint.vector_endpoint.id
+  description = "Vertex AI Vector Search index endpoint id"
+}
+
+output "vector_deployed_index_id" {
+  value       = google_vertex_ai_index_endpoint_deployed_index.vector_deployed.deployed_index_id
+  description = "Vertex AI Vector Search deployed index id"
+}

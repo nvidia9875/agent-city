@@ -62,3 +62,52 @@ resource "google_project_iam_member" "cloudsql_client" {
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.app.email}"
 }
+
+resource "google_vertex_ai_index" "vector_index" {
+  region       = var.vector_region
+  display_name = var.vector_index_display_name
+  description  = var.vector_index_description
+
+  index_update_method = "STREAM_UPDATE"
+
+  labels = {
+    app       = "agenttown"
+    component = "vector-search"
+  }
+
+  metadata {
+    config {
+      dimensions                 = var.vector_dimensions
+      approximate_neighbors_count = var.vector_approximate_neighbors_count
+      distance_measure_type      = var.vector_distance_measure_type
+
+      algorithm_config {
+        tree_ah_config {
+          leaf_node_embedding_count   = var.vector_leaf_node_embedding_count
+          leaf_nodes_to_search_percent = var.vector_leaf_nodes_to_search_percent
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.vertex]
+}
+
+resource "google_vertex_ai_index_endpoint" "vector_endpoint" {
+  region                  = var.vector_region
+  display_name            = var.vector_endpoint_display_name
+  public_endpoint_enabled = true
+
+  depends_on = [google_project_service.vertex]
+}
+
+resource "google_vertex_ai_index_endpoint_deployed_index" "vector_deployed" {
+  index_endpoint    = google_vertex_ai_index_endpoint.vector_endpoint.id
+  index             = google_vertex_ai_index.vector_index.id
+  deployed_index_id = var.vector_deployed_index_id
+
+  automatic_resources {
+    min_replica_count = var.vector_min_replicas
+    max_replica_count = var.vector_max_replicas
+  }
+}
