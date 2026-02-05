@@ -41,7 +41,9 @@ AgentTown は、災害対応の「予行演習」を可視化する Next.js + Re
 ```
 GCP_PROJECT_ID=your-gcp-project
 GCP_REGION=us-central1
-VERTEX_AI_MODEL=gemini-1.5-pro-001
+VERTEX_AI_LOCATION=global
+VERTEX_AI_MODEL_DECISION=gemini-3-flash-preview
+VERTEX_AI_MODEL_REASONING=gemini-3-pro-preview
 VERTEX_EMBED_MODEL=gemini-embedding-001
 VERTEX_EMBED_DIM=768
 AI_ENABLED=true
@@ -55,7 +57,7 @@ SIM_ADK_ENABLED=false
 # ADK (Vertex AI via ADC)
 # GOOGLE_GENAI_USE_VERTEXAI=true
 # GOOGLE_CLOUD_PROJECT=your-gcp-project
-# GOOGLE_CLOUD_LOCATION=us-central1
+# GOOGLE_CLOUD_LOCATION=global
 NEXT_PUBLIC_WS_URL=ws://localhost:3001
 DB_HOST=127.0.0.1
 DB_PORT=3306
@@ -86,6 +88,77 @@ cd infra
 terraform init
 terraform apply -var="project_id=your-gcp-project"
 ```
+
+## Cloud Run デプロイ
+
+Cloud Run では Web アプリと WebSocket サーバーを別サービスで動かします。
+`NEXT_PUBLIC_*` はビルド時に埋め込まれるため、Web 側ビルド時に `NEXT_PUBLIC_WS_URL` を指定してください。
+
+### 1) WebSocket サーバーをデプロイ
+
+1. イメージをビルドしてレジストリへ push します。
+   ```bash
+   docker build -f Dockerfile.ws -t REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest .
+   docker push REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest
+   ```
+2. Cloud Run にデプロイします。
+   ```bash
+  gcloud run deploy agenttown-ws \\
+    --image REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest \\
+    --region us-central1 \\
+    --allow-unauthenticated \\
+    --set-env-vars GCP_PROJECT_ID=your-gcp-project,GCP_REGION=us-central1,VERTEX_AI_LOCATION=global,VERTEX_AI_MODEL_DECISION=gemini-3-flash-preview,VERTEX_AI_MODEL_REASONING=gemini-3-pro-preview
+   ```
+3. 出力された URL を控え、`wss://` に置き換えます（例: `https://...` → `wss://...`）。
+
+### 2) Web アプリをデプロイ
+
+1. Web アプリのビルド時に `NEXT_PUBLIC_WS_URL` を渡します。
+   ```bash
+   docker build \\
+     --build-arg NEXT_PUBLIC_AI_ENABLED=true \\
+     --build-arg NEXT_PUBLIC_WS_URL=wss://YOUR-WS-URL \\
+     -t REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest .
+   docker push REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest
+   ```
+2. Cloud Run にデプロイします。
+   ```bash
+  gcloud run deploy agenttown-web \\
+    --image REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest \\
+    --region us-central1 \\
+    --allow-unauthenticated \\
+    --set-env-vars GCP_PROJECT_ID=your-gcp-project,GCP_REGION=us-central1,VERTEX_AI_LOCATION=global,VERTEX_AI_MODEL_DECISION=gemini-3-flash-preview,VERTEX_AI_MODEL_REASONING=gemini-3-pro-preview
+   ```
+
+### Cloud Build でまとめて実行
+
+`cloudbuild.yaml` に Web/WS のビルドとデプロイをまとめています。WebSocket の URL を置き換えて実行してください。
+
+```bash
+gcloud builds submit \\
+  --substitutions _REGION=us-central1,_REPO=REPO,_WEB_SERVICE=agenttown-web,_WS_SERVICE=agenttown-ws,_NEXT_PUBLIC_WS_URL=wss://YOUR-WS-URL
+```
+
+### GitHub Actions で自動デプロイ
+
+`.github/workflows/cloud-run-deploy.yml` を追加しています。`main` 更新で Web/WS を再デプロイします。
+
+1. Google Cloud 側で Workload Identity Federation を設定します。
+2. GitHub の Secrets に以下を追加します。
+   - `GCP_PROJECT_ID`
+   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
+   - `GCP_SERVICE_ACCOUNT`
+3. GitHub の Variables に以下を追加します（任意、未設定ならデフォルト値）。
+   - `GCP_REGION`（default: `us-central1`）
+   - `ARTIFACT_REPO`（default: `agenttown`）
+   - `CLOUD_RUN_WEB_SERVICE`（default: `agenttown-web`）
+   - `CLOUD_RUN_WS_SERVICE`（default: `agenttown-ws`）
+   - `NEXT_PUBLIC_AI_ENABLED`（default: `true`）
+   - `NEXT_PUBLIC_SIM_LOG_LEVEL`（default: `info`）
+   - `VERTEX_AI_MODEL_DECISION`（default: `gemini-3-flash-preview`）
+   - `VERTEX_AI_MODEL_REASONING`（default: `gemini-3-pro-preview`）
+   - `VERTEX_AI_LOCATION`（default: `global` when using Gemini 3）
+   - `AI_ENABLED`（default: `true`）
 
 ## 動作確認手順
 

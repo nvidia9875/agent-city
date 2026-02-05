@@ -1,18 +1,35 @@
 import { VertexAI } from "@google-cloud/vertexai";
 import type { Agent, AgentReasoning } from "@/types/sim";
 
-const getVertexClient = () => {
+const getReasoningModelName = () =>
+  process.env.VERTEX_AI_MODEL_REASONING ||
+  process.env.VERTEX_AI_MODEL ||
+  "gemini-3-pro-preview";
+
+const resolveVertexLocation = (modelName?: string) => {
+  if (process.env.VERTEX_AI_LOCATION) {
+    return process.env.VERTEX_AI_LOCATION;
+  }
+  if (modelName?.startsWith("gemini-3")) {
+    return "global";
+  }
+  return process.env.GCP_REGION || "us-central1";
+};
+
+const getVertexClient = (modelName?: string) => {
   const project =
     process.env.GCP_PROJECT_ID ||
     process.env.GOOGLE_CLOUD_PROJECT ||
     process.env.NEXT_PUBLIC_GCP_PROJECT_ID;
-  const location = process.env.GCP_REGION || "us-central1";
+  const location = resolveVertexLocation(modelName);
 
   if (!project) {
     throw new Error("GCP_PROJECT_ID is not set");
   }
 
-  return new VertexAI({ project, location });
+  const apiEndpoint =
+    location === "global" ? "aiplatform.googleapis.com" : undefined;
+  return new VertexAI({ project, location, apiEndpoint });
 };
 
 const extractJson = (text: string) => {
@@ -25,8 +42,8 @@ export const generateAgentReasoning = async (input: {
   tick?: number;
   recentEvents?: string[];
 }): Promise<AgentReasoning> => {
-  const vertex = getVertexClient();
-  const modelName = process.env.VERTEX_AI_MODEL || "gemini-1.5-pro-001";
+  const modelName = getReasoningModelName();
+  const vertex = getVertexClient(modelName);
 
   const model = vertex.getGenerativeModel({
     model: modelName,

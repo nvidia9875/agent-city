@@ -30,3 +30,199 @@ body {
   font-family: var(--font-geist-sans);
   overflow: hidden;
 }
+
+.fancy-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 185, 129, 0.6) rgba(15, 23, 42, 0.6);
+}
+
+.fancy-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.fancy-scroll::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(2, 6, 23, 0.8));
+  border-radius: 999px;
+}
+
+.fancy-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.8), rgba(59, 130, 246, 0.6));
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.9);
+}
+
+.fancy-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.9), rgba(59, 130, 246, 0.85));
+}
+
+@keyframes tabGlowPulse {
+  0% {
+    opacity: 0.2;
+    transform: translateX(-20%);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateX(20%);
+  }
+  100% {
+    opacity: 0.2;
+    transform: translateX(60%);
+  }
+}
+
+@keyframes tabPanelIn {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.tab-button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.tab-button::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.35), transparent 60%);
+  opacity: 0;
+  transition: opacity 200ms ease;
+  z-index: 0;
+}
+
+.tab-button::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0), rgba(16, 185, 129, 0.9), rgba(59, 130, 246, 0));
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 220ms ease;
+  z-index: 0;
+}
+
+.tab-button[data-active="true"]::before {
+  opacity: 0.7;
+  animation: tabGlowPulse 1.6s ease-in-out infinite;
+}
+
+.tab-button[data-active="true"]::after {
+  transform: scaleX(1);
+}
+
+.tab-button > span,
+.tab-button {
+  position: relative;
+  z-index: 1;
+}
+
+.tab-panel {
+  animation: tabPanelIn 280ms ease-out;
+  will-change: transform, opacity;
+}
+
+.start-cta {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.start-cta::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: conic-gradient(
+    from 120deg,
+    rgba(16, 185, 129, 0.1),
+    rgba(56, 189, 248, 0.4),
+    rgba(16, 185, 129, 0.1)
+  );
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 240ms ease, transform 240ms ease;
+  z-index: 0;
+}
+
+.start-cta::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 50%;
+  height: 220%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  opacity: 0;
+  transform: translateX(-120%) skewX(-20deg);
+  z-index: 0;
+}
+
+@keyframes startSweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  30% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(220%) skewX(-20deg);
+  }
+}
+
+.start-cta:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(16, 185, 129, 0.35);
+}
+
+.start-cta:not(:disabled):hover::before {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.start-cta:not(:disabled):hover::after {
+  animation: startSweep 0.9s ease-out;
+}
+
+.start-cta > span,
+.start-cta {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-panel {
+    animation: none;
+  }
+
+  .tab-button[data-active="true"]::before {
+    animation: none;
+  }
+
+  .start-cta:not(:disabled):hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .start-cta:not(:disabled):hover::after {
+    animation: none;
+  }
+}

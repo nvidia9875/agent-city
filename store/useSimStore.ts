@@ -6,18 +6,23 @@ import type {
   Building,
   BuildingId,
   Metrics,
+  SimEndSummary,
   TimelineEvent,
   TimelineEventType,
   World,
 } from "@/types/sim";
+import { ACTIVITY_LABELS } from "@/utils/activity";
 
 const MAX_TIMELINE = 120;
+const METRICS_HISTORY_LIMIT = 600;
 
 const buildReasoning = (agent: Agent): AgentReasoning => ({
   agentId: agent.id,
-  why: `${agent.name}は「${agent.goal ?? "状況確認"}」を優先しています。公式情報の信頼度は${
-    agent.profile.trustLevel
-  }で、噂への感受性は${agent.profile.rumorSusceptibility}です。`,
+  why: `${agent.name}は「${agent.goal ?? "状況確認"}」を優先しています。現在は${
+    agent.activity ? ACTIVITY_LABELS[agent.activity] : "行動中"
+  }で、公式情報の信頼度は${agent.profile.trustLevel}、噂への感受性は${
+    agent.profile.rumorSusceptibility
+  }です。`,
   memoryRefs: [
     {
       title: "近所の噂",
@@ -38,11 +43,13 @@ type SimState = {
   world?: World;
   metrics?: Metrics;
   metricsTick?: number;
+  metricsHistory: Array<{ tick: number; metrics: Metrics }>;
   timeline: TimelineEvent[];
   selected: { agentId?: AgentId; buildingId?: BuildingId };
   hovered: { buildingId?: BuildingId; agentId?: AgentId };
   ui: { speed: 1 | 5 | 20 | 60; paused: boolean; filters: TimelineEventType[] };
   reasoning: Record<AgentId, AgentReasoning>;
+  sim: { ended: boolean; summary?: SimEndSummary };
   setWorld: (world: World) => void;
   applyWorldDiff: (diff: {
     tick: number;
@@ -52,6 +59,8 @@ type SimState = {
   addEvent: (event: TimelineEvent) => void;
   setMetrics: (metrics: Metrics, tick: number) => void;
   setReasoning: (reasoning: AgentReasoning) => void;
+  setSimEnd: (summary: SimEndSummary) => void;
+  resetSim: () => void;
   selectAgent: (agentId: AgentId) => void;
   selectBuilding: (buildingId: BuildingId) => void;
   setHoveredBuilding: (buildingId?: BuildingId) => void;
@@ -68,6 +77,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   world: undefined,
   metrics: undefined,
   metricsTick: undefined,
+  metricsHistory: [],
   timeline: [],
   selected: {},
   hovered: {},
@@ -81,12 +91,14 @@ export const useSimStore = create<SimState>((set, get) => ({
       "EVACUATE",
       "SUPPORT",
       "CHECKIN",
+      "ACTIVITY",
       "MOVE",
       "TALK",
       "INTERVENTION",
     ],
   },
   reasoning: {},
+  sim: { ended: false },
   setWorld: (world) => set({ world }),
   applyWorldDiff: (diff) => {
     const current = get().world;
@@ -126,10 +138,35 @@ export const useSimStore = create<SimState>((set, get) => ({
     set((state) => ({
       timeline: [event, ...state.timeline].slice(0, MAX_TIMELINE),
     })),
-  setMetrics: (metrics, tick) => set({ metrics, metricsTick: tick }),
+  setMetrics: (metrics, tick) =>
+    set((state) => ({
+      metrics,
+      metricsTick: tick,
+      metricsHistory: [...state.metricsHistory, { tick, metrics }].slice(
+        -METRICS_HISTORY_LIMIT
+      ),
+    })),
   setReasoning: (reasoning) =>
     set((state) => ({
       reasoning: { ...state.reasoning, [reasoning.agentId]: reasoning },
+    })),
+  setSimEnd: (summary) =>
+    set((state) => ({
+      sim: { ended: true, summary },
+      ui: { ...state.ui, paused: true },
+    })),
+  resetSim: () =>
+    set((state) => ({
+      world: undefined,
+      metrics: undefined,
+      metricsTick: undefined,
+      metricsHistory: [],
+      timeline: [],
+      selected: {},
+      hovered: {},
+      reasoning: {},
+      sim: { ended: false, summary: undefined },
+      ui: { ...state.ui, paused: false },
     })),
   selectAgent: (agentId) => {
     const world = get().world;

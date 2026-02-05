@@ -8,6 +8,7 @@ import type {
   TimelineEvent,
   World,
   SimConfig,
+  SimEndSummary,
 } from "./sim";
 
 export type WsServerMsg =
@@ -21,6 +22,7 @@ export type WsServerMsg =
   | { type: "EVENT_LOG"; event: TimelineEvent }
   | { type: "EVENT"; event: TimelineEvent }
   | { type: "METRICS"; metrics: Metrics; tick: number }
+  | { type: "SIM_END"; summary: SimEndSummary }
   | { type: "AGENT_REASONING"; payload: AgentReasoning }
   | { type: "ERROR"; message: string };
 

@@ -11,6 +11,18 @@ export type AgentState = {
 
 export type AlertStatus = "NONE" | "RUMOR" | "OFFICIAL";
 export type EvacStatus = "STAY" | "EVACUATING" | "SHELTERED" | "HELPING";
+export type AgentActivity =
+  | "EATING"
+  | "COMMUTING"
+  | "SHOPPING"
+  | "WORKING"
+  | "SCHOOLING"
+  | "TRAVELING"
+  | "PLAYING"
+  | "RESTING"
+  | "SOCIALIZING"
+  | "EMERGENCY"
+  | "IDLE";
 
 export type AgentProfile = {
   ageGroup: "child" | "adult" | "senior";
@@ -35,7 +47,11 @@ export type Agent = {
   state: AgentState;
   alertStatus?: AlertStatus;
   evacStatus?: EvacStatus;
+  activity?: AgentActivity;
   goal?: string;
+  plan?: string;
+  reflection?: string;
+  isAI?: boolean;
   bubble?: string;
   icon?: "TALK" | "RUMOR" | "OFFICIAL" | "EMERGENCY" | "THINKING" | "HELP";
 };
@@ -73,12 +89,23 @@ export type TileType =
 
 export type TownSize = "SMALL" | "MEDIUM" | "LARGE";
 export type TerrainType = "COASTAL" | "MOUNTAIN" | "URBAN";
+export type DisasterType = "TSUNAMI" | "EARTHQUAKE" | "FLOOD" | "METEOR";
+export type EmotionTone = "WARM" | "NEUTRAL" | "COOL";
+export type AgeProfile = "YOUTH" | "BALANCED" | "SENIOR";
 
 export type SimConfig = {
   size: TownSize;
   population: number;
   buildings: number;
   terrain: TerrainType;
+  disaster: DisasterType;
+  officialDelayMinutes: number;
+  ambiguityLevel: number;
+  misinformationLevel: number;
+  multilingualCoverage: number;
+  factCheckSpeed: number;
+  emotionTone: EmotionTone;
+  ageProfile: AgeProfile;
 };
 
 export type World = {
@@ -99,7 +126,8 @@ export type TimelineEventType =
   | "EVACUATE"
   | "SUPPORT"
   | "CHECKIN"
-  | "INTERVENTION";
+  | "INTERVENTION"
+  | "ACTIVITY";
 
 export type TimelineEvent = {
   id: string;
@@ -115,10 +143,65 @@ export type Metrics = {
   rumorSpread: number;
   officialReach: number;
   vulnerableReach: number;
+  panicIndex: number;
+  trustIndex: number;
+  misinfoBelief: number;
+  resourceMisallocation: number;
+  stabilityScore: number;
+};
+
+export type VectorClusterSummary = {
+  label: string;
+  count: number;
+  representative: string;
+  topTypes: Array<{ type: TimelineEventType | "OTHER"; count: number }>;
+};
+
+export type VectorRumorOverlap = {
+  score: number;
+  rumorSamples: number;
+  neighborSamples: number;
+  officialLike: number;
+};
+
+export type VectorInsightsStatus =
+  | "pending"
+  | "ready"
+  | "disabled"
+  | "unavailable"
+  | "error";
+
+export type VectorInsights = {
+  status: VectorInsightsStatus;
+  reason?: string;
+  clusters: VectorClusterSummary[];
+  rumorOverlap?: VectorRumorOverlap;
 };
 
 export type AgentReasoning = {
   agentId: AgentId;
   why: string;
   memoryRefs: { title: string; text: string }[];
+};
+
+export type SimEndReason = "STABILIZED" | "TIME_LIMIT" | "ESCALATED";
+
+export type MetricsPeak = { value: number; tick: number };
+
+export type SimEndSummary = {
+  reason: SimEndReason;
+  tick: number;
+  durationTicks: number;
+  durationSeconds: number;
+  simulatedMinutes: number;
+  metrics: Metrics;
+  peaks: Record<keyof Metrics, MetricsPeak>;
+  eventCounts: Record<TimelineEventType, number>;
+  population: {
+    total: number;
+    alertStatus: Record<AlertStatus, number>;
+    evacStatus: Record<EvacStatus, number>;
+  };
+  disaster: DisasterType;
+  vectorInsights?: VectorInsights;
 };

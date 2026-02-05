@@ -4,7 +4,9 @@ import IsoCamera from "@/components/three/IsoCamera";
 import MapTiles from "@/components/three/MapTiles";
 import Buildings from "@/components/three/Buildings";
 import Agents from "@/components/three/Agents";
+import AgentBubbles from "@/components/three/AgentBubbles";
 import EntityTooltip from "@/components/three/EntityTooltip";
+import Cars from "@/components/three/Cars";
 
 const SceneRoot = () => {
   return (
@@ -15,7 +17,9 @@ const SceneRoot = () => {
       <directionalLight position={[-12, 14, -8]} intensity={0.4} />
       <MapTiles />
       <Buildings />
+      <Cars />
       <Agents />
+      <AgentBubbles />
       <EntityTooltip />
     </>
   );

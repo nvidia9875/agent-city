@@ -152,24 +152,24 @@ const MapTiles = () => {
 
     const landPalette = (tile: TileType) => {
       if (tile === "PARK") {
-        return { base: new THREE.Color("#49a86b"), tint: new THREE.Color("#2f7a50") };
+        return { base: new THREE.Color("#5fbf7a"), tint: new THREE.Color("#3a9a61") };
       }
-      return { base: new THREE.Color("#3d8f5b"), tint: new THREE.Color("#2f6c45") };
+      return { base: new THREE.Color("#4fa96b"), tint: new THREE.Color("#2f7b4f") };
     };
 
     const waterPalette = {
-      base: new THREE.Color("#1f6aa7"),
-      tint: new THREE.Color("#134067"),
+      base: new THREE.Color("#8bd9ff"),
+      tint: new THREE.Color("#4db6ff"),
     };
 
     const mountainPalette = {
-      base: new THREE.Color("#5b626c"),
-      tint: new THREE.Color("#3b4048"),
+      base: new THREE.Color("#5fb469"),
+      tint: new THREE.Color("#2f7b3d"),
     };
 
     const mountainPeakPalette = {
-      base: new THREE.Color("#7e8694"),
-      tint: new THREE.Color("#b2bac7"),
+      base: new THREE.Color("#bde9b6"),
+      tint: new THREE.Color("#88d395"),
     };
 
     for (let y = 0; y < height; y += 1) {
@@ -317,9 +317,11 @@ const MapTiles = () => {
       >
         <meshStandardMaterial
           vertexColors
-          color="#1f6aa7"
-          roughness={0.25}
-          metalness={0.08}
+          color="#8bd9ff"
+          roughness={0.15}
+          metalness={0.05}
+          emissive="#3aa6ff"
+          emissiveIntensity={0.45}
         />
       </instancedMesh>
       <instancedMesh
@@ -328,21 +330,39 @@ const MapTiles = () => {
         receiveShadow
         onPointerDown={() => clearFocus()}
       >
-        <meshStandardMaterial vertexColors roughness={0.9} color="#3d8f5b" />
+        <meshStandardMaterial
+          vertexColors
+          roughness={0.9}
+          color="#4fa96b"
+          emissive="#1e3c2a"
+          emissiveIntensity={0.12}
+        />
       </instancedMesh>
       <instancedMesh
         ref={mountainBaseRef}
         args={[mountainBaseGeometry, undefined, data.mountainBase.length]}
         onPointerDown={() => clearFocus()}
       >
-        <meshStandardMaterial vertexColors roughness={0.85} color="#5b626c" />
+        <meshStandardMaterial
+          vertexColors
+          roughness={0.85}
+          color="#5fb469"
+          emissive="#2a5b36"
+          emissiveIntensity={0.2}
+        />
       </instancedMesh>
       <instancedMesh
         ref={mountainPeakRef}
         args={[mountainPeakGeometry, undefined, data.mountainPeaks.length]}
         onPointerDown={() => clearFocus()}
       >
-        <meshStandardMaterial vertexColors roughness={0.75} color="#7e8694" />
+        <meshStandardMaterial
+          vertexColors
+          roughness={0.75}
+          color="#bde9b6"
+          emissive="#7acb86"
+          emissiveIntensity={0.28}
+        />
       </instancedMesh>
       <instancedMesh
         ref={straightRef}

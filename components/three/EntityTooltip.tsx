@@ -5,6 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import { useSimStore } from "@/store/useSimStore";
 import { gridToWorld } from "@/utils/grid";
+import { ACTIVITY_LABELS } from "@/utils/activity";
 import type { Agent, BuildingType } from "@/types/sim";
 import * as THREE from "three";
 
@@ -92,6 +93,7 @@ const truncate = (text: string, max = 48) =>
 
 const EntityTooltip = () => {
   const world = useSimStore((state) => state.world);
+  const simEnded = useSimStore((state) => state.sim.ended);
   const hoveredAgentId = useSimStore((state) => state.hovered.agentId);
   const hoveredBuildingId = useSimStore((state) => state.hovered.buildingId);
   const selected = useSimStore((state) => state.selected);
@@ -158,6 +160,7 @@ const EntityTooltip = () => {
   }, [data]);
 
   useFrame(() => {
+    if (simEnded) return;
     if (!groupRef.current) return;
     if (activeKindRef.current === "agent") {
       groupRef.current.position.lerp(targetRef.current, 0.18);
@@ -172,6 +175,7 @@ const EntityTooltip = () => {
 
     const agent = world.agents[selected.agentId];
     if (!agent) return;
+    if (!agent.isAI) return;
 
     const recentEvents = timeline
       .filter((event) => event.actors?.includes(selected.agentId))
@@ -260,6 +264,10 @@ const EntityTooltip = () => {
               <span>ストレス: {agent.state.stress}</span>
               <span>エネルギー: {agent.state.energy}</span>
               <span>目標: {agent.goal ?? "周辺確認"}</span>
+              <span>
+                行動: {agent.activity ? ACTIVITY_LABELS[agent.activity] : "不明"}
+              </span>
+              <span>AI: {agent.isAI ? "LLM" : "ルール"}</span>
             </div>
             <p className="mt-2 text-[10px] text-slate-300">
               発話: {agent.bubble ?? "最新情報を確認中…"}

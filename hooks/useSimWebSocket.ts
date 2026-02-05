@@ -10,13 +10,11 @@ const allowInfo = logLevel === "info" || logLevel === "debug";
 const allowDebug = logLevel === "debug";
 const logInfo = (...args: unknown[]) => {
   if (allowInfo) {
-    // eslint-disable-next-line no-console
     console.log("[sim-ui]", ...args);
   }
 };
 const logDebug = (...args: unknown[]) => {
   if (allowDebug) {
-    // eslint-disable-next-line no-console
     console.log("[sim-ui:debug]", ...args);
   }
 };
@@ -67,6 +65,7 @@ export const useSimWebSocket = () => {
   const addEvent = useSimStore((state) => state.addEvent);
   const setMetrics = useSimStore((state) => state.setMetrics);
   const setReasoning = useSimStore((state) => state.setReasoning);
+  const setSimEnd = useSimStore((state) => state.setSimEnd);
   const selectedAgentId = useSimStore((state) => state.selected.agentId);
   const selectedBuildingId = useSimStore((state) => state.selected.buildingId);
 
@@ -109,6 +108,10 @@ export const useSimWebSocket = () => {
               setMetrics(msg.metrics, msg.tick);
               return;
             }
+            if (msg.type === "SIM_END") {
+              setSimEnd(msg.summary);
+              return;
+            }
             if (msg.type === "AGENT_REASONING") {
               setReasoning(msg.payload);
             }
@@ -135,6 +138,10 @@ export const useSimWebSocket = () => {
               setMetrics(msg.metrics, msg.tick);
               return;
             }
+            if (msg.type === "SIM_END") {
+              setSimEnd(msg.summary);
+              return;
+            }
             if (msg.type === "AGENT_REASONING") {
               setReasoning(msg.payload);
             }
@@ -150,7 +157,7 @@ export const useSimWebSocket = () => {
       connection.close();
       markClosed();
     };
-  }, [addEvent, applyWorldDiff, setMetrics, setReasoning, setWorld]);
+  }, [addEvent, applyWorldDiff, setMetrics, setReasoning, setSimEnd, setWorld]);
 
   useEffect(() => {
     if (!selectedAgentId) return;

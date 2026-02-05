@@ -1,0 +1,74 @@
+substitutions:
+  _REGION: us-central1
+  _REPO: agenttown
+  _WEB_SERVICE: agenttown-web
+  _WS_SERVICE: agenttown-ws
+  _WEB_IMAGE: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/agenttown-web:latest
+  _WS_IMAGE: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/agenttown-ws:latest
+  _NEXT_PUBLIC_AI_ENABLED: "true"
+  _NEXT_PUBLIC_SIM_LOG_LEVEL: "info"
+  _NEXT_PUBLIC_WS_URL: ""
+  _GCP_REGION: us-central1
+  _VERTEX_AI_MODEL_DECISION: gemini-3-flash-preview
+  _VERTEX_AI_MODEL_REASONING: gemini-3-pro-preview
+  _VERTEX_AI_LOCATION: global
+  _AI_ENABLED: "true"
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "-f",
+        "Dockerfile",
+        "-t",
+        "${_WEB_IMAGE}",
+        "--build-arg",
+        "NEXT_PUBLIC_AI_ENABLED=${_NEXT_PUBLIC_AI_ENABLED}",
+        "--build-arg",
+        "NEXT_PUBLIC_SIM_LOG_LEVEL=${_NEXT_PUBLIC_SIM_LOG_LEVEL}",
+        "--build-arg",
+        "NEXT_PUBLIC_WS_URL=${_NEXT_PUBLIC_WS_URL}",
+        ".",
+      ]
+  - name: gcr.io/cloud-builders/docker
+    args: ["push", "${_WEB_IMAGE}"]
+
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "Dockerfile.ws", "-t", "${_WS_IMAGE}", "."]
+  - name: gcr.io/cloud-builders/docker
+    args: ["push", "${_WS_IMAGE}"]
+
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      [
+        "run",
+        "deploy",
+        "${_WEB_SERVICE}",
+        "--image",
+        "${_WEB_IMAGE}",
+        "--region",
+        "${_REGION}",
+        "--allow-unauthenticated",
+        "--set-env-vars",
+        "GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=${_GCP_REGION},VERTEX_AI_LOCATION=${_VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${_VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${_VERTEX_AI_MODEL_REASONING},AI_ENABLED=${_AI_ENABLED}",
+      ]
+
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      [
+        "run",
+        "deploy",
+        "${_WS_SERVICE}",
+        "--image",
+        "${_WS_IMAGE}",
+        "--region",
+        "${_REGION}",
+        "--allow-unauthenticated",
+        "--set-env-vars",
+        "GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=${_GCP_REGION},VERTEX_AI_LOCATION=${_VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${_VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${_VERTEX_AI_MODEL_REASONING},AI_ENABLED=${_AI_ENABLED}",
+      ]
+
+images:
+  - "${_WEB_IMAGE}"
+  - "${_WS_IMAGE}"

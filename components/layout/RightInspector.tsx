@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useSimStore } from "@/store/useSimStore";
+import { ACTIVITY_LABELS } from "@/utils/activity";
 import type { BuildingType } from "@/types/sim";
 
 const MOOD_LABELS: Record<string, string> = {
@@ -64,7 +65,9 @@ const RightInspector = () => {
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4">
             <h3 className="text-lg font-semibold text-slate-100">{agent.name}</h3>
-            <p className="text-sm text-slate-400">{agent.job}</p>
+            <p className="text-sm text-slate-400">
+              {agent.job} / {agent.isAI ? "AIエージェント" : "通常住民"}
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {agent.personalityTags.map((tag) => (
                 <span
@@ -86,6 +89,9 @@ const RightInspector = () => {
                 <span>気分: {MOOD_LABELS[agent.state.mood] ?? agent.state.mood}</span>
                 <span>ストレス: {agent.state.stress}</span>
                 <span>エネルギー: {agent.state.energy}</span>
+                <span>
+                  行動: {agent.activity ? ACTIVITY_LABELS[agent.activity] : "不明"}
+                </span>
               </div>
             </div>
             <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
@@ -99,6 +105,18 @@ const RightInspector = () => {
                 “{agent.bubble ?? "最新情報を確認しています…"}”
               </p>
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+              内省 / 計画
+            </p>
+            <p className="mt-2 text-sm text-slate-200">
+              {agent.reflection ?? "内省はまだありません。"}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              計画: {agent.plan ?? "計画はまだありません。"}
+            </p>
           </div>
 
           <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4">

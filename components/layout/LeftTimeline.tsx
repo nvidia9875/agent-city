@@ -11,6 +11,7 @@ const EVENT_TYPES: TimelineEventType[] = [
   "EVACUATE",
   "SUPPORT",
   "CHECKIN",
+  "ACTIVITY",
   "MOVE",
   "TALK",
   "INTERVENTION",
@@ -19,6 +20,7 @@ const EVENT_TYPES: TimelineEventType[] = [
 const EVENT_LABELS: Record<TimelineEventType, string> = {
   MOVE: "移動",
   TALK: "会話",
+  ACTIVITY: "生活",
   RUMOR: "噂",
   OFFICIAL: "公式",
   ALERT: "警報",

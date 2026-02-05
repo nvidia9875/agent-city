@@ -1,0 +1,85 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  REPO: ${{ vars.ARTIFACT_REPO || 'agenttown' }}
+  WEB_SERVICE: ${{ vars.CLOUD_RUN_WEB_SERVICE || 'agenttown-web' }}
+  WS_SERVICE: ${{ vars.CLOUD_RUN_WS_SERVICE || 'agenttown-ws' }}
+  NEXT_PUBLIC_AI_ENABLED: ${{ vars.NEXT_PUBLIC_AI_ENABLED || 'true' }}
+  NEXT_PUBLIC_SIM_LOG_LEVEL: ${{ vars.NEXT_PUBLIC_SIM_LOG_LEVEL || 'info' }}
+  VERTEX_AI_MODEL_DECISION: ${{ vars.VERTEX_AI_MODEL_DECISION || 'gemini-3-flash-preview' }}
+  VERTEX_AI_MODEL_REASONING: ${{ vars.VERTEX_AI_MODEL_REASONING || 'gemini-3-pro-preview' }}
+  VERTEX_AI_LOCATION: ${{ vars.VERTEX_AI_LOCATION || 'global' }}
+  AI_ENABLED: ${{ vars.AI_ENABLED || 'true' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${REGION}-docker.pkg.dev -q
+
+      - name: Build and push WebSocket image
+        run: |
+          WS_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/agenttown-ws:${GITHUB_SHA}"
+          docker build -f Dockerfile.ws -t "${WS_IMAGE}" .
+          docker push "${WS_IMAGE}"
+          echo "WS_IMAGE=${WS_IMAGE}" >> "${GITHUB_ENV}"
+
+      - name: Deploy WebSocket service
+        run: |
+          gcloud run deploy "${WS_SERVICE}" \
+            --image "${WS_IMAGE}" \
+            --region "${REGION}" \
+            --allow-unauthenticated \
+            --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${VERTEX_AI_MODEL_REASONING},AI_ENABLED=${AI_ENABLED}"
+
+      - name: Resolve WebSocket URL
+        id: ws_url
+        run: |
+          WS_URL=$(gcloud run services describe "${WS_SERVICE}" --region "${REGION}" --format='value(status.url)')
+          WSS_URL="${WS_URL/https:/wss:}"
+          echo "wss_url=${WSS_URL}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push Web image
+        run: |
+          WEB_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/agenttown-web:${GITHUB_SHA}"
+          docker build -f Dockerfile \
+            --build-arg NEXT_PUBLIC_AI_ENABLED="${NEXT_PUBLIC_AI_ENABLED}" \
+            --build-arg NEXT_PUBLIC_SIM_LOG_LEVEL="${NEXT_PUBLIC_SIM_LOG_LEVEL}" \
+            --build-arg NEXT_PUBLIC_WS_URL="${{ steps.ws_url.outputs.wss_url }}" \
+            -t "${WEB_IMAGE}" .
+          docker push "${WEB_IMAGE}"
+          echo "WEB_IMAGE=${WEB_IMAGE}" >> "${GITHUB_ENV}"
+
+      - name: Deploy Web service
+        run: |
+          gcloud run deploy "${WEB_SERVICE}" \
+            --image "${WEB_IMAGE}" \
+            --region "${REGION}" \
+            --allow-unauthenticated \
+            --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${VERTEX_AI_MODEL_REASONING},AI_ENABLED=${AI_ENABLED}"

@@ -29,6 +29,7 @@ const createAgentTexture = () => {
 
 const Agents = () => {
   const world = useSimStore((state) => state.world);
+  const simEnded = useSimStore((state) => state.sim.ended);
   const selectedAgentId = useSimStore((state) => state.selected.agentId);
   const selectAgent = useSimStore((state) => state.selectAgent);
   const setHoveredAgent = useSimStore((state) => state.setHoveredAgent);
@@ -52,6 +53,7 @@ const Agents = () => {
   }, [world]);
 
   useFrame((state, delta) => {
+    if (simEnded) return;
     timeRef.current += delta;
     agents.forEach((agent, index) => {
       const sprite = spriteRefs.current[agent.id];

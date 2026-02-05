@@ -1,20 +1,190 @@
 import type {
   Agent,
+  AgentActivity,
   Building,
   BuildingType,
   SimConfig,
   TerrainType,
   TileType,
   World,
+  EmotionTone,
+  AgeProfile,
 } from "@/types/sim";
 import { toIndex } from "@/utils/grid";
+import { clamp } from "@/utils/easing";
 import {
   DEFAULT_SIM_CONFIG,
   SIZE_DIMENSIONS,
 } from "@/utils/simConfig";
+import { buildAgentBubble } from "@/utils/bubble";
+import { ACTIVITY_GOALS } from "@/utils/activity";
 
 const randomPick = <T,>(items: T[]) =>
   items[Math.floor(Math.random() * items.length)];
+
+const pickWeighted = <T,>(items: Array<[T, number]>): T => {
+  const total = items.reduce((sum, [, weight]) => sum + weight, 0);
+  let roll = Math.random() * total;
+  for (const [value, weight] of items) {
+    roll -= weight;
+    if (roll <= 0) return value;
+  }
+  return items[0][0];
+};
+
+const AGE_PROFILE_WEIGHTS: Record<
+  AgeProfile,
+  Record<Agent["profile"]["ageGroup"], number>
+> = {
+  YOUTH: { child: 0.35, adult: 0.55, senior: 0.1 },
+  BALANCED: { child: 0.2, adult: 0.6, senior: 0.2 },
+  SENIOR: { child: 0.1, adult: 0.5, senior: 0.4 },
+};
+
+const TONE_MOOD_WEIGHTS: Record<
+  EmotionTone,
+  Record<Agent["state"]["mood"], number>
+> = {
+  WARM: { calm: 0.5, anxious: 0.2, panic: 0.1, helpful: 0.2 },
+  NEUTRAL: { calm: 0.35, anxious: 0.3, panic: 0.15, helpful: 0.2 },
+  COOL: { calm: 0.2, anxious: 0.4, panic: 0.25, helpful: 0.15 },
+};
+
+const TONE_TUNING: Record<
+  EmotionTone,
+  { stressShift: number; trustShift: number; rumorShift: number; energyShift: number }
+> = {
+  WARM: { stressShift: -10, trustShift: 8, rumorShift: -8, energyShift: 6 },
+  NEUTRAL: { stressShift: 0, trustShift: 0, rumorShift: 0, energyShift: 0 },
+  COOL: { stressShift: 10, trustShift: -8, rumorShift: 8, energyShift: -4 },
+};
+
+const MINUTES_IN_DAY = 24 * 60;
+const DEFAULT_START_MINUTE = 9 * 60;
+const DEFAULT_MINUTES_PER_TICK = 5;
+
+const resolveNumber = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const getStartMinute = () => {
+  const raw = resolveNumber(
+    process.env.NEXT_PUBLIC_SIM_START_MINUTE ??
+      process.env.SIM_START_MINUTE ??
+      undefined,
+    DEFAULT_START_MINUTE
+  );
+  const normalized = ((raw % MINUTES_IN_DAY) + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+  return normalized;
+};
+
+const getMinutesPerTick = () =>
+  Math.max(
+    1,
+    resolveNumber(
+      process.env.NEXT_PUBLIC_SIM_MINUTES_PER_TICK ??
+        process.env.SIM_MINUTES_PER_TICK ??
+        undefined,
+      DEFAULT_MINUTES_PER_TICK
+    )
+  );
+
+const getSimMinute = (tick: number) =>
+  (getStartMinute() + tick * getMinutesPerTick()) % MINUTES_IN_DAY;
+
+const deriveDailyActivity = (agent: Agent, minute: number): AgentActivity => {
+  if (agent.evacStatus && agent.evacStatus !== "STAY") return "EMERGENCY";
+  if (agent.alertStatus !== "NONE") {
+    if (["medical", "staff", "leader", "volunteer"].includes(agent.profile.role)) {
+      return "EMERGENCY";
+    }
+  }
+
+  const hour = Math.floor(minute / 60);
+  const isNight = hour >= 22 || hour < 6;
+  if (isNight) return "RESTING";
+
+  if (hour >= 6 && hour < 9) {
+    if (agent.profile.ageGroup === "child") return "COMMUTING";
+    if (agent.profile.role === "visitor") return "TRAVELING";
+    return "COMMUTING";
+  }
+
+  if (hour >= 9 && hour < 12) {
+    if (agent.profile.role === "visitor") return "TRAVELING";
+    if (agent.profile.ageGroup === "child") return "SCHOOLING";
+    if (agent.profile.ageGroup === "senior") {
+      return randomPick(["RESTING", "SHOPPING"]);
+    }
+    if (["medical", "staff", "leader", "volunteer"].includes(agent.profile.role)) {
+      return "WORKING";
+    }
+    return "WORKING";
+  }
+
+  if (hour >= 12 && hour < 13) return "EATING";
+
+  if (hour >= 13 && hour < 17) {
+    if (agent.profile.role === "visitor") return "TRAVELING";
+    if (agent.profile.ageGroup === "child") return "SCHOOLING";
+    if (agent.profile.ageGroup === "senior") {
+      return randomPick(["RESTING", "SHOPPING"]);
+    }
+    return "WORKING";
+  }
+
+  if (hour >= 17 && hour < 19) {
+    if (agent.profile.ageGroup === "child") return "PLAYING";
+    if (agent.profile.ageGroup === "senior") return randomPick(["RESTING", "SHOPPING"]);
+    return randomPick(["COMMUTING", "SHOPPING"]);
+  }
+
+  if (hour >= 19 && hour < 22) {
+    return randomPick(["EATING", "SOCIALIZING", "RESTING"]);
+  }
+
+  return "IDLE";
+};
+
+const assignAiAgents = (agents: Record<string, Agent>, ratio: number) => {
+  const list = Object.values(agents);
+  if (list.length === 0) return;
+  const clamped = Math.max(0, Math.min(1, ratio));
+  if (clamped === 0) return;
+  const targetCount = Math.max(1, Math.round(list.length * clamped));
+  const byRole = new Map<Agent["profile"]["role"], Agent[]>();
+  list.forEach((agent) => {
+    const bucket = byRole.get(agent.profile.role) ?? [];
+    bucket.push(agent);
+    byRole.set(agent.profile.role, bucket);
+  });
+
+  const selected = new Set<string>();
+  const roles = Array.from(byRole.keys());
+  if (targetCount >= roles.length) {
+    roles.forEach((role) => {
+      const group = byRole.get(role) ?? [];
+      if (group.length === 0) return;
+      const pick = group[Math.floor(Math.random() * group.length)];
+      selected.add(pick.id);
+    });
+  }
+
+  const remaining = list.filter((agent) => !selected.has(agent.id));
+  for (let i = remaining.length - 1; i > 0; i -= 1) {
+    const swap = Math.floor(Math.random() * (i + 1));
+    [remaining[i], remaining[swap]] = [remaining[swap], remaining[i]];
+  }
+  for (const agent of remaining) {
+    if (selected.size >= targetCount) break;
+    selected.add(agent.id);
+  }
+
+  list.forEach((agent) => {
+    agent.isAI = selected.has(agent.id);
+  });
+};
 
 const createRoadSet = (
   width: number,
@@ -236,7 +406,7 @@ const createAgents = (
   width: number,
   height: number,
   tiles: TileType[],
-  agentCount: number
+  config: SimConfig
 ) => {
   const agents: Record<string, Agent> = {};
   const roadPositions: { x: number; y: number }[] = [];
@@ -286,13 +456,20 @@ const createAgents = (
   } satisfies Record<Agent["profile"]["role"], string[]>;
 
   const tags = ["慎重", "社交的", "前向き", "助け好き", "好奇心旺盛", "観察的"];
-  const moods: Agent["state"]["mood"][] = ["calm", "anxious", "panic", "helpful"];
-  const count = Math.min(agentCount, roadPositions.length);
+  const ageWeights = AGE_PROFILE_WEIGHTS[config.ageProfile];
+  const moodWeights = TONE_MOOD_WEIGHTS[config.emotionTone];
+  const tuning = TONE_TUNING[config.emotionTone];
+  const count = Math.min(config.population, roadPositions.length);
+  const startMinute = getSimMinute(0);
 
   for (let i = 0; i < count; i += 1) {
     const pos = randomPick(roadPositions);
     const id = `A-${i + 1}`;
-    const ageGroup = randomPick(["adult", "adult", "adult", "senior", "child"]);
+    const ageGroup = pickWeighted<Agent["profile"]["ageGroup"]>([
+      ["child", ageWeights.child],
+      ["adult", ageWeights.adult],
+      ["senior", ageWeights.senior],
+    ]);
     const language = randomPick(["ja", "ja", "ja", "ja", "en", "zh", "ko"]);
     const hearing = Math.random() > 0.92 ? "impaired" : "normal";
     const mobility =
@@ -319,8 +496,16 @@ const createAgents = (
       vulnerabilityTags.push("独居");
 
     const trustBase = language === "ja" ? 50 : 40;
-    const trustLevel = trustBase + Math.floor(Math.random() * 40);
-    const rumorSusceptibility = 25 + Math.floor(Math.random() * 55);
+    const trustLevel = clamp(
+      trustBase + Math.floor(Math.random() * 40) + tuning.trustShift,
+      10,
+      100
+    );
+    const rumorSusceptibility = clamp(
+      25 + Math.floor(Math.random() * 55) + tuning.rumorShift,
+      5,
+      100
+    );
     const alertRoll = Math.random();
     const alertStatus =
       alertRoll > 0.88 ? "OFFICIAL" : alertRoll > 0.72 ? "RUMOR" : "NONE";
@@ -340,13 +525,13 @@ const createAgents = (
             : alertStatus === "OFFICIAL"
               ? "高台へ避難"
               : "周辺の様子を確認";
-    const bubble =
+    const bubbleKind =
       alertStatus === "RUMOR"
-        ? "橋が危ないらしい…"
+        ? "RUMOR"
         : alertStatus === "OFFICIAL"
-          ? "公式警報が出た！"
+          ? "OFFICIAL"
           : Math.random() > 0.75
-            ? "近所の人と情報交換中"
+            ? "AMBIENT"
             : undefined;
     const icon =
       alertStatus === "RUMOR"
@@ -356,8 +541,7 @@ const createAgents = (
           : Math.random() > 0.9
             ? "THINKING"
             : undefined;
-
-    agents[id] = {
+    const agent: Agent = {
       id,
       name: names[i % names.length],
       job: randomPick(roleJobMap[role]),
@@ -375,17 +559,39 @@ const createAgents = (
       },
       pos: { x: pos.x, y: pos.y },
       state: {
-        mood: randomPick(moods),
-        stress: 20 + Math.floor(Math.random() * 50),
-        energy: 40 + Math.floor(Math.random() * 50),
+        mood: pickWeighted<Agent["state"]["mood"]>([
+          ["calm", moodWeights.calm],
+          ["anxious", moodWeights.anxious],
+          ["panic", moodWeights.panic],
+          ["helpful", moodWeights.helpful],
+        ]),
+        stress: clamp(20 + Math.floor(Math.random() * 50) + tuning.stressShift, 5, 95),
+        energy: clamp(40 + Math.floor(Math.random() * 50) + tuning.energyShift, 5, 95),
       },
       alertStatus,
       evacStatus,
       goal,
-      bubble,
       icon,
     };
+
+    const activity = deriveDailyActivity(agent, startMinute);
+    agent.activity = activity;
+    if (agent.alertStatus === "NONE" && (agent.evacStatus ?? "STAY") === "STAY") {
+      agent.goal = ACTIVITY_GOALS[activity] ?? agent.goal;
+    }
+
+    if (bubbleKind) {
+      agent.bubble = buildAgentBubble(agent, {
+        tick: 0,
+        kind: bubbleKind,
+      });
+    }
+
+    agents[id] = agent;
   }
+
+  const aiRatio = resolveNumber(process.env.SIM_AI_AGENT_RATIO ?? undefined, 0.1);
+  assignAiAgents(agents, aiRatio);
 
   return agents;
 };
@@ -396,7 +602,7 @@ export const createMockWorld = (config: SimConfig = DEFAULT_SIM_CONFIG): World =
   const height = size;
   const tiles = createTiles(width, height, config.terrain);
   const buildings = placeBuildings(width, height, tiles, config.buildings);
-  const agents = createAgents(width, height, tiles, config.population);
+  const agents = createAgents(width, height, tiles, config);
 
   return {
     width,
