@@ -9,19 +9,44 @@ import {
   AGE_PROFILE_LABELS,
 } from "@/utils/simConfig";
 
-const MetricBar = ({ label, value }: { label: string; value: number }) => {
+const clampValue = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+const MetricGauge = ({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent: string;
+}) => {
+  const clamped = clampValue(value);
+  const track = "rgba(148, 163, 184, 0.25)";
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-24 text-xs uppercase tracking-wide text-slate-300">
-        {label}
-      </span>
-      <div className="h-2 flex-1 rounded-full bg-slate-800">
+    <div className="group flex items-center gap-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 px-3 py-2 shadow-[0_10px_30px_rgba(8,12,18,0.35)] backdrop-blur transition hover:border-slate-600/70">
+      <div className="relative h-12 w-12">
         <div
-          className="h-full rounded-full bg-emerald-400"
-          style={{ width: `${value}%` }}
+          className="absolute inset-0 rounded-full"
+          style={{
+            background: `conic-gradient(${accent} ${clamped}%, ${track} ${clamped}% 100%)`,
+          }}
         />
+        <div className="absolute inset-[3px] flex items-center justify-center rounded-full border border-slate-800/60 bg-slate-950/90 text-[11px] font-semibold text-slate-100">
+          {clamped}
+        </div>
       </div>
-      <span className="w-10 text-right text-xs text-slate-300">{value}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">
+          {label}
+        </p>
+        <div className="mt-2 h-1.5 w-full rounded-full bg-slate-800/70">
+          <div
+            className="h-full rounded-full"
+            style={{ width: `${clamped}%`, background: accent }}
+          />
+        </div>
+      </div>
     </div>
   );
 };
@@ -56,19 +81,22 @@ const TopHud = ({
   onOpenConfig,
 }: TopHudProps) => {
   const metrics = useSimStore((state) => state.metrics);
-  const metricsTick = useSimStore((state) => state.metricsTick);
   const ui = useSimStore((state) => state.ui);
   const simEnded = useSimStore((state) => state.sim.ended);
 
-  const metricList: Array<[keyof Metrics, string]> = [
-    ["confusion", "混乱度"],
-    ["rumorSpread", "噂拡散"],
-    ["officialReach", "公式到達"],
-    ["vulnerableReach", "要支援到達"],
-    ["panicIndex", "パニック"],
-    ["trustIndex", "信頼度"],
-    ["misinfoBelief", "誤情報信念"],
-    ["resourceMisallocation", "誤配分"],
+  const metricList: Array<{
+    key: keyof Metrics;
+    label: string;
+    accent: string;
+  }> = [
+    { key: "confusion", label: "混雑度", accent: "#f97316" },
+    { key: "rumorSpread", label: "噂拡散", accent: "#f59e0b" },
+    { key: "officialReach", label: "公式到達", accent: "#38bdf8" },
+    { key: "vulnerableReach", label: "要支援到達", accent: "#a3e635" },
+    { key: "panicIndex", label: "パニック", accent: "#fb7185" },
+    { key: "trustIndex", label: "信頼度", accent: "#22d3ee" },
+    { key: "misinfoBelief", label: "誤情報信念", accent: "#f472b6" },
+    { key: "resourceMisallocation", label: "誤配分", accent: "#facc15" },
   ];
 
   return (
@@ -91,17 +119,8 @@ const TopHud = ({
             {multilingualCoverage}% / 検証速度 {factCheckSpeed}%
           </p>
           <p className="mt-1 text-[10px] text-slate-500">
-            目標: 公式到達・要支援到達を上げ、噂拡散・混乱度を下げる。
+            目標: 公式到達・要支援到達を上げ、噂拡散・混雑度を下げる。
           </p>
-        </div>
-        <div className="flex flex-col gap-2">
-          <div className="rounded-full border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-xs text-slate-200">
-            {simEnded ? "終了" : ui.paused ? "一時停止中" : "稼働中"}
-            <span className="ml-2 text-slate-500">ティック {metricsTick ?? 0}</span>
-          </div>
-          <div className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-xs text-emerald-200">
-            安定度 {metrics?.stabilityScore ?? 0}
-          </div>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-200">
@@ -133,9 +152,14 @@ const TopHud = ({
           {ui.paused ? "再開" : "一時停止"}
         </button>
       </div>
-      <div className="grid min-w-[260px] grid-cols-2 gap-2">
-        {metricList.map(([key, label]) => (
-          <MetricBar key={key} label={label} value={metrics?.[key] ?? 0} />
+      <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {metricList.map(({ key, label, accent }) => (
+          <MetricGauge
+            key={key}
+            label={label}
+            value={metrics?.[key] ?? 0}
+            accent={accent}
+          />
         ))}
       </div>
     </section>

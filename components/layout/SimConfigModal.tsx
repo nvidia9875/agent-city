@@ -20,6 +20,7 @@ import {
   MISINFORMATION_PRESETS,
   MULTILINGUAL_COVERAGE_PRESETS,
   FACT_CHECK_SPEED_PRESETS,
+  INTERVENTION_POINT_PRESETS,
   EMOTION_TONE_LABELS,
   AGE_PROFILE_LABELS,
 } from "@/utils/simConfig";
@@ -115,6 +116,14 @@ const getDifficulty = (config: SimConfig): DifficultyLevel => {
       : 0;
   const factCheckScore =
     config.factCheckSpeed <= 40 ? 6 : config.factCheckSpeed <= 70 ? 3 : 0;
+  const interventionScore =
+    config.interventionPoints <= 100
+      ? 8
+      : config.interventionPoints <= 140
+      ? 5
+      : config.interventionPoints <= 180
+      ? 2
+      : 0;
   const emotionScore =
     config.emotionTone === "WARM"
       ? 0
@@ -139,6 +148,7 @@ const getDifficulty = (config: SimConfig): DifficultyLevel => {
     misinfoScore +
     multilingualScore +
     factCheckScore +
+    interventionScore +
     emotionScore +
     ageScore;
 
@@ -748,6 +758,20 @@ const SimConfigModal = ({
     })
   );
 
+  const interventionPointOptions: SliderOption<number>[] =
+    INTERVENTION_POINT_PRESETS.map((value) => ({
+      value,
+      label: value <= 100 ? "少" : value <= 160 ? "標準" : "多",
+      shortLabel: `${value}`,
+      badge: `${value}pt`,
+      detail:
+        value <= 100
+          ? "介入回数が限られる"
+          : value <= 160
+          ? "標準的な介入回数"
+          : "介入を多めに使える",
+    }));
+
   const emotionOptions: SliderOption<EmotionTone>[] = [
     {
       value: "WARM",
@@ -1133,6 +1157,35 @@ const SimConfigModal = ({
                 options={factCheckOptions}
                 value={config.factCheckSpeed}
                 onChange={(value) => setField("factCheckSpeed", value)}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
+                <IconTarget className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Intervention Budget
+                </p>
+                <h3 className="text-sm font-semibold text-slate-100">
+                  介入ポイント
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  介入カードで使える総量
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3">
+              <SliderRow
+                title="介入ポイント"
+                subtitle="介入に使えるポイント量"
+                icon={<IconTarget className="h-4 w-4" />}
+                options={interventionPointOptions}
+                value={config.interventionPoints}
+                onChange={(value) => setField("interventionPoints", value)}
               />
             </div>
           </div>

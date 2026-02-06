@@ -1618,6 +1618,10 @@ wss.on("connection", (client) => {
         open_shelter: "避難所拡張",
         fact_check: "ファクトチェック",
         support_vulnerable: "要支援者支援",
+        multilingual_broadcast: "多言語一斉アラート",
+        route_guidance: "避難ルート誘導",
+        rumor_monitoring: "SNSデマ監視",
+        volunteer_mobilization: "ボランティア招集",
       };
       const diffAgents: Record<string, Partial<Agent>> = {};
       const diffBuildings: Record<string, Partial<Building>> = {};
@@ -1635,14 +1639,15 @@ wss.on("connection", (client) => {
         world.buildings[buildingId] = { ...existing, ...patch };
         diffBuildings[buildingId] = { ...(diffBuildings[buildingId] ?? {}), ...patch };
       };
-      const officialAcceptance = (agent: Agent, base: number) => {
+      const officialAcceptance = (
+        agent: Agent,
+        base: number,
+        coverage: number = multilingualCoverage
+      ) => {
         const trustFactor = 0.4 + (agent.profile.trustLevel / 100) * 0.6;
         const rumorPenalty = clamp01(1 - agent.profile.rumorSusceptibility / 180);
         return clamp01(
-          base *
-            trustFactor *
-            rumorPenalty *
-            officialAccessibility(agent, multilingualCoverage)
+          base * trustFactor * rumorPenalty * officialAccessibility(agent, coverage)
         );
       };
       const event: TimelineEvent = {
@@ -1745,6 +1750,142 @@ wss.on("connection", (client) => {
             status: "OPEN",
             occupancy: nextOccupancy,
           });
+        });
+      }
+
+      if (msg.payload.kind === "multilingual_broadcast") {
+        const boostedCoverage = Math.min(100, multilingualCoverage + 30);
+        Object.values(world.agents).forEach((agent) => {
+          if (agent.alertStatus === "OFFICIAL") return;
+          const isLocalLang = agent.profile.language === "ja";
+          const coverage = isLocalLang ? multilingualCoverage : boostedCoverage;
+          const base = isLocalLang ? 0.65 : 0.9;
+          if (Math.random() > officialAcceptance(agent, base, coverage)) return;
+          const nextState = {
+            ...agent.state,
+            stress: clamp(agent.state.stress - (isLocalLang ? 4 : 7), 0, 100),
+          };
+          mergeAgentPatch(agent.id, {
+            alertStatus: "OFFICIAL",
+            bubble: buildAgentBubble(agent, {
+              tick: world.tick,
+              kind: "OFFICIAL",
+              message: msg.payload.message ?? "多言語で警報が届いた",
+            }),
+            icon: "OFFICIAL",
+            state: nextState,
+          });
+          if (isVulnerable(agent) && agent.evacStatus !== "HELPING") {
+            mergeAgentPatch(agent.id, {
+              evacStatus: "EVACUATING",
+            });
+          }
+        });
+      }
+
+      if (msg.payload.kind === "route_guidance") {
+        Object.values(world.agents).forEach((agent) => {
+          const evacStatus = agent.evacStatus ?? "STAY";
+          const canMove =
+            evacStatus === "STAY" && agent.profile.mobility !== "needs_assist";
+          const trustFactor = (agent.profile.trustLevel / 100) * 0.3;
+          const officialBoost =
+            agent.alertStatus === "OFFICIAL"
+              ? 0.25
+              : agent.alertStatus === "RUMOR"
+              ? 0.1
+              : 0;
+          const vulnerableBoost = isVulnerable(agent) ? 0.15 : 0;
+          const guidanceChance = clamp01(0.2 + trustFactor + officialBoost + vulnerableBoost);
+          if (canMove && Math.random() < guidanceChance) {
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 5, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              evacStatus: "EVACUATING",
+              alertStatus: "OFFICIAL",
+              bubble: buildAgentBubble(agent, {
+                tick: world.tick,
+                kind: "OFFICIAL",
+                message: msg.payload.message ?? "安全ルートが案内された",
+              }),
+              icon: "OFFICIAL",
+              state: nextState,
+            });
+            return;
+          }
+          if (evacStatus === "EVACUATING" && Math.random() < 0.4) {
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 4, 0, 100),
+            };
+            mergeAgentPatch(agent.id, { state: nextState });
+          }
+        });
+      }
+
+      if (msg.payload.kind === "rumor_monitoring") {
+        Object.values(world.agents).forEach((agent) => {
+          if (agent.alertStatus !== "RUMOR") return;
+          const base = agent.profile.trustLevel > 65 ? 0.88 : 0.8;
+          if (Math.random() > officialAcceptance(agent, base)) return;
+          const nextState = {
+            ...agent.state,
+            stress: clamp(agent.state.stress - 10, 0, 100),
+          };
+          mergeAgentPatch(agent.id, {
+            alertStatus: "OFFICIAL",
+            bubble: buildAgentBubble(agent, {
+              tick: world.tick,
+              kind: "OFFICIAL",
+              message: msg.payload.message ?? "デマが訂正された",
+            }),
+            icon: "OFFICIAL",
+            state: nextState,
+          });
+        });
+      }
+
+      if (msg.payload.kind === "volunteer_mobilization") {
+        Object.values(world.agents).forEach((agent) => {
+          if (isVulnerable(agent) && (agent.evacStatus ?? "STAY") === "STAY") {
+            const assistChance =
+              0.35 + clamp01(agent.profile.trustLevel / 100) * 0.15;
+            if (Math.random() > assistChance) return;
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 8, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              evacStatus: "EVACUATING",
+              bubble: buildAgentBubble(agent, {
+                tick: world.tick,
+                kind: "SUPPORT",
+                message: msg.payload.message ?? "支援班が誘導を開始",
+              }),
+              icon: "HELP",
+              state: nextState,
+            });
+            return;
+          }
+          if (["volunteer", "medical", "staff", "leader"].includes(agent.profile.role)) {
+            if (agent.evacStatus === "HELPING") return;
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 6, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              evacStatus: "HELPING",
+              bubble: buildAgentBubble(agent, {
+                tick: world.tick,
+                kind: "SUPPORT",
+                message: msg.payload.message ?? "支援要員が動員された",
+              }),
+              icon: "HELP",
+              state: nextState,
+            });
+          }
         });
       }
 

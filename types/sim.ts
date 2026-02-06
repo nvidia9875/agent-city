@@ -106,6 +106,7 @@ export type SimConfig = {
   factCheckSpeed: number;
   emotionTone: EmotionTone;
   ageProfile: AgeProfile;
+  interventionPoints: number;
 };
 
 export type World = {

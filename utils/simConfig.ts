@@ -63,9 +63,10 @@ export const MULTILINGUAL_COVERAGE_PRESETS = [30, 60, 90];
 export const DEFAULT_MULTILINGUAL_COVERAGE = 60;
 export const FACT_CHECK_SPEED_PRESETS = [30, 60, 90];
 export const DEFAULT_FACT_CHECK_SPEED = 60;
+export const INTERVENTION_POINT_PRESETS = [80, 120, 160, 200];
 export const DEFAULT_EMOTION_TONE: EmotionTone = "NEUTRAL";
 export const DEFAULT_AGE_PROFILE: AgeProfile = "BALANCED";
-export const DEFAULT_INTERVENTION_BUDGET = 120;
+export const DEFAULT_INTERVENTION_POINTS = 120;
 
 export const DEFAULT_SIM_CONFIG: SimConfig = {
   size: "MEDIUM",
@@ -80,6 +81,7 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   factCheckSpeed: DEFAULT_FACT_CHECK_SPEED,
   emotionTone: DEFAULT_EMOTION_TONE,
   ageProfile: DEFAULT_AGE_PROFILE,
+  interventionPoints: DEFAULT_INTERVENTION_POINTS,
 };
 
 export const TERRAIN_LABELS: Record<TerrainType, string> = {

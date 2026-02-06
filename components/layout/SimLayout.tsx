@@ -3,6 +3,7 @@
 import { useState } from "react";
 import CityCanvas from "@/components/three/CityCanvas";
 import SimConfigModal from "@/components/layout/SimConfigModal";
+import SimStatusDock from "@/components/layout/SimStatusDock";
 import TopHud from "@/components/layout/TopHud";
 import LeftTimeline from "@/components/layout/LeftTimeline";
 import BottomInterventions from "@/components/layout/BottomInterventions";
@@ -11,7 +12,7 @@ import { useSimWebSocket } from "@/hooks/useSimWebSocket";
 import { useSimStore } from "@/store/useSimStore";
 import type { WsClientMsg } from "@/types/ws";
 import type { SimConfig } from "@/types/sim";
-import { DEFAULT_INTERVENTION_BUDGET, DEFAULT_SIM_CONFIG } from "@/utils/simConfig";
+import { DEFAULT_INTERVENTION_POINTS, DEFAULT_SIM_CONFIG } from "@/utils/simConfig";
 
 const SimLayout = () => {
   const { send, ready } = useSimWebSocket();
@@ -28,7 +29,7 @@ const SimLayout = () => {
   const [showConfig, setShowConfig] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [hideResults, setHideResults] = useState(false);
-  const [budget, setBudget] = useState(DEFAULT_INTERVENTION_BUDGET);
+  const [points, setPoints] = useState(DEFAULT_INTERVENTION_POINTS);
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
   const showResults = sim.ended && !hideResults;
 
@@ -49,7 +50,7 @@ const SimLayout = () => {
     setHideResults(false);
     setShowConfig(false);
     setShowConfirm(false);
-    setBudget(DEFAULT_INTERVENTION_BUDGET);
+    setPoints(config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS);
     setCooldowns({});
     send({ type: "INIT_SIM", config });
   };
@@ -137,6 +138,7 @@ const SimLayout = () => {
         </div>
         <div className="relative min-h-0 overflow-hidden rounded-3xl border border-slate-800/60 bg-slate-950/60 shadow-[0_30px_80px_rgba(8,12,18,0.6)] lg:row-start-2 lg:col-start-2">
           <CityCanvas />
+          <SimStatusDock />
           {!world ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">
               ミッションを初期化中...
@@ -147,15 +149,16 @@ const SimLayout = () => {
           <BottomInterventions
             disabled={sim.ended}
             disaster={config.disaster}
-            budget={budget}
+            points={points}
+            maxPoints={config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS}
             currentTick={metricsTick ?? world?.tick ?? 0}
             cooldowns={cooldowns}
             onIntervention={(intervention) => {
               const tick = metricsTick ?? world?.tick ?? 0;
               const nextAvailable = cooldowns[intervention.kind] ?? 0;
               if (tick < nextAvailable) return;
-              if (budget < intervention.cost) return;
-              setBudget((current) => Math.max(0, current - intervention.cost));
+              if (points < intervention.cost) return;
+              setPoints((current) => Math.max(0, current - intervention.cost));
               setCooldowns((current) => ({
                 ...current,
                 [intervention.kind]: tick + intervention.cooldown,
