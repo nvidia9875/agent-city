@@ -9,10 +9,56 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "artifact_repo" {
+  type        = string
+  description = "Artifact Registry repository id for container images"
+  default     = "agenttown"
+}
+
+variable "cloud_run_web_service_name" {
+  type        = string
+  description = "Cloud Run service name for web app"
+  default     = "agenttown-web"
+}
+
+variable "cloud_run_ws_service_name" {
+  type        = string
+  description = "Cloud Run service name for websocket server"
+  default     = "agenttown-ws"
+}
+
 variable "service_account_name" {
   type        = string
   description = "Service account id (without domain)"
   default     = "agenttown-app"
+}
+
+variable "github_owner" {
+  type        = string
+  description = "GitHub organization or user name that owns this repository"
+}
+
+variable "github_repo" {
+  type        = string
+  description = "GitHub repository name (without owner)"
+}
+
+variable "github_workload_identity_pool_id" {
+  type        = string
+  description = "Workload Identity Pool id for GitHub Actions"
+  default     = "github-pool"
+}
+
+variable "github_workload_identity_provider_id" {
+  type        = string
+  description = "Workload Identity Provider id for GitHub Actions"
+  default     = "github-provider"
+}
+
+variable "github_deployer_service_account_name" {
+  type        = string
+  description = "Service account id used by GitHub Actions to deploy"
+  default     = "agenttown-deployer"
 }
 
 variable "db_instance_name" {

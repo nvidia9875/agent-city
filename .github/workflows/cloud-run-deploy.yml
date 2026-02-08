@@ -15,6 +15,7 @@ env:
   REPO: ${{ vars.ARTIFACT_REPO || 'agenttown' }}
   WEB_SERVICE: ${{ vars.CLOUD_RUN_WEB_SERVICE || 'agenttown-web' }}
   WS_SERVICE: ${{ vars.CLOUD_RUN_WS_SERVICE || 'agenttown-ws' }}
+  CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT || '' }}
   NEXT_PUBLIC_AI_ENABLED: ${{ vars.NEXT_PUBLIC_AI_ENABLED || 'true' }}
   NEXT_PUBLIC_SIM_LOG_LEVEL: ${{ vars.NEXT_PUBLIC_SIM_LOG_LEVEL || 'info' }}
   VERTEX_AI_MODEL_DECISION: ${{ vars.VERTEX_AI_MODEL_DECISION || 'gemini-3-flash-preview' }}
@@ -29,6 +30,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate required GitHub Secrets
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -z "${PROJECT_ID}" ]] && missing+=("GCP_PROJECT_ID")
+          [[ -z "${WORKLOAD_IDENTITY_PROVIDER}" ]] && missing+=("GCP_WORKLOAD_IDENTITY_PROVIDER")
+          [[ -z "${SERVICE_ACCOUNT}" ]] && missing+=("GCP_SERVICE_ACCOUNT")
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Missing required GitHub Secrets: ${missing[*]}"
+            exit 1
+          fi
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -39,6 +56,14 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
+
+      - name: Validate bootstrap resources
+        run: |
+          set -euo pipefail
+          if ! gcloud artifacts repositories describe "${REPO}" --location "${REGION}" >/dev/null 2>&1; then
+            echo "::error::Artifact Registry repository '${REPO}' was not found in '${REGION}'. Run infra Terraform bootstrap first."
+            exit 1
+          fi
 
       - name: Configure Docker
         run: gcloud auth configure-docker ${REGION}-docker.pkg.dev -q
@@ -52,10 +77,16 @@ jobs:
 
       - name: Deploy WebSocket service
         run: |
+          set -euo pipefail
+          SA_ARGS=()
+          if [[ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+            SA_ARGS+=(--service-account "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}")
+          fi
           gcloud run deploy "${WS_SERVICE}" \
             --image "${WS_IMAGE}" \
             --region "${REGION}" \
             --allow-unauthenticated \
+            "${SA_ARGS[@]}" \
             --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${VERTEX_AI_MODEL_REASONING},AI_ENABLED=${AI_ENABLED}"
 
       - name: Resolve WebSocket URL
@@ -78,8 +109,14 @@ jobs:
 
       - name: Deploy Web service
         run: |
+          set -euo pipefail
+          SA_ARGS=()
+          if [[ -n "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+            SA_ARGS+=(--service-account "${CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT}")
+          fi
           gcloud run deploy "${WEB_SERVICE}" \
             --image "${WEB_IMAGE}" \
             --region "${REGION}" \
             --allow-unauthenticated \
+            "${SA_ARGS[@]}" \
             --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${VERTEX_AI_MODEL_REASONING},AI_ENABLED=${AI_ENABLED}"

@@ -1,6 +1,51 @@
+output "project_id" {
+  value       = var.project_id
+  description = "GCP project id"
+}
+
+output "region" {
+  value       = var.region
+  description = "Primary GCP region"
+}
+
 output "service_account_email" {
   value       = google_service_account.app.email
-  description = "Service account email for the app"
+  description = "Runtime service account email for Cloud Run services"
+}
+
+output "github_actions_service_account_email" {
+  value       = google_service_account.github_deployer.email
+  description = "Service account email for GitHub Actions deploys"
+}
+
+output "github_workload_identity_provider" {
+  value       = google_iam_workload_identity_pool_provider.github.name
+  description = "Workload Identity Provider resource name for GitHub Actions auth"
+}
+
+output "artifact_registry_repository" {
+  value       = google_artifact_registry_repository.images.repository_id
+  description = "Artifact Registry repository id for container images"
+}
+
+output "artifact_registry_hostname" {
+  value       = "${var.region}-docker.pkg.dev"
+  description = "Artifact Registry Docker hostname"
+}
+
+output "artifact_registry_path" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
+  description = "Artifact Registry path prefix for images"
+}
+
+output "cloud_run_web_service_name" {
+  value       = var.cloud_run_web_service_name
+  description = "Cloud Run web service name"
+}
+
+output "cloud_run_ws_service_name" {
+  value       = var.cloud_run_ws_service_name
+  description = "Cloud Run websocket service name"
 }
 
 output "db_instance_connection_name" {

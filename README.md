@@ -86,8 +86,13 @@ DB_HOST=127.0.0.1 DB_USER=agenttown DB_PASSWORD=your-password DB_NAME=agenttown 
 ```
 cd infra
 terraform init
-terraform apply -var="project_id=your-gcp-project"
+terraform apply \\
+  -var="project_id=your-gcp-project" \\
+  -var="github_owner=your-github-owner" \\
+  -var="github_repo=your-github-repo"
 ```
+
+`infra/README.md` に、Terraform 出力値を GitHub Secrets / Variables に設定する手順を記載しています。
 
 ## Cloud Run デプロイ
 
@@ -143,7 +148,7 @@ gcloud builds submit \\
 
 `.github/workflows/cloud-run-deploy.yml` を追加しています。`main` 更新で Web/WS を再デプロイします。
 
-1. Google Cloud 側で Workload Identity Federation を設定します。
+1. 先に `infra/` の Terraform を実行し、OIDC/WIF とデプロイ用 SA を作成します。
 2. GitHub の Secrets に以下を追加します。
    - `GCP_PROJECT_ID`
    - `GCP_WORKLOAD_IDENTITY_PROVIDER`
@@ -153,12 +158,20 @@ gcloud builds submit \\
    - `ARTIFACT_REPO`（default: `agenttown`）
    - `CLOUD_RUN_WEB_SERVICE`（default: `agenttown-web`）
    - `CLOUD_RUN_WS_SERVICE`（default: `agenttown-ws`）
+   - `CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT`（Cloud Run 実行時の SA。Terraform の `service_account_email` 推奨）
    - `NEXT_PUBLIC_AI_ENABLED`（default: `true`）
    - `NEXT_PUBLIC_SIM_LOG_LEVEL`（default: `info`）
    - `VERTEX_AI_MODEL_DECISION`（default: `gemini-3-flash-preview`）
    - `VERTEX_AI_MODEL_REASONING`（default: `gemini-3-pro-preview`）
    - `VERTEX_AI_LOCATION`（default: `global` when using Gemini 3）
    - `AI_ENABLED`（default: `true`）
+
+Terraform 適用後に `gh` で一括設定する場合:
+
+```bash
+gh auth login
+./scripts/setup-github-actions-cloud-run.sh --repo your-github-owner/your-github-repo
+```
 
 ## 動作確認手順
 
