@@ -91,7 +91,11 @@ const fallbackWhy = (agent: Agent) =>
 const truncate = (text: string, max = 48) =>
   text.length > max ? `${text.slice(0, max)}…` : text;
 
-const EntityTooltip = () => {
+type EntityTooltipProps = {
+  hidden?: boolean;
+};
+
+const EntityTooltip = ({ hidden = false }: EntityTooltipProps) => {
   const world = useSimStore((state) => state.world);
   const simEnded = useSimStore((state) => state.sim.ended);
   const hoveredAgentId = useSimStore((state) => state.hovered.agentId);
@@ -105,7 +109,7 @@ const EntityTooltip = () => {
   const activeKindRef = useRef<"agent" | "building" | null>(null);
 
   const data = useMemo(() => {
-    if (!world) return null;
+    if (hidden || !world) return null;
 
     const activeAgentId = selected.agentId ?? hoveredAgentId;
     const activeBuildingId = selected.buildingId ?? hoveredBuildingId;
@@ -139,7 +143,7 @@ const EntityTooltip = () => {
     }
 
     return null;
-  }, [hoveredAgentId, hoveredBuildingId, selected.agentId, selected.buildingId, world]);
+  }, [hidden, hoveredAgentId, hoveredBuildingId, selected.agentId, selected.buildingId, world]);
 
   useEffect(() => {
     if (!data) {
@@ -160,7 +164,7 @@ const EntityTooltip = () => {
   }, [data]);
 
   useFrame(() => {
-    if (simEnded) return;
+    if (hidden || simEnded) return;
     if (!groupRef.current) return;
     if (activeKindRef.current === "agent") {
       groupRef.current.position.lerp(targetRef.current, 0.18);
@@ -169,16 +173,18 @@ const EntityTooltip = () => {
 
   useEffect(() => {
     if (!world || !selected.agentId) return;
-    if (reasoning[selected.agentId]) return;
+    const selectedAgentId = selected.agentId;
+
+    if (reasoning[selectedAgentId]) return;
     if (process.env.NEXT_PUBLIC_AI_ENABLED !== "true") return;
     if (process.env.NEXT_PUBLIC_WS_URL) return;
 
-    const agent = world.agents[selected.agentId];
+    const agent = world.agents[selectedAgentId];
     if (!agent) return;
     if (!agent.isAI) return;
 
     const recentEvents = timeline
-      .filter((event) => event.actors?.includes(selected.agentId))
+      .filter((event) => event.actors?.includes(selectedAgentId))
       .slice(0, 3)
       .map((event) => event.message ?? event.type);
 
@@ -203,7 +209,7 @@ const EntityTooltip = () => {
     return () => controller.abort();
   }, [reasoning, selected.agentId, setReasoning, timeline, world]);
 
-  if (!data) return null;
+  if (hidden || !data) return null;
 
   if (data.kind === "agent") {
     const agent = data.agent;

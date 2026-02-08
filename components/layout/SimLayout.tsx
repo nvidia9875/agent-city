@@ -32,6 +32,7 @@ const SimLayout = () => {
   const [points, setPoints] = useState(DEFAULT_INTERVENTION_POINTS);
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
   const showResults = sim.ended && !hideResults;
+  const hasBlockingOverlay = showConfirm || showResults || !started || showConfig;
 
   const handleSpeed = (speed: 1 | 5 | 20 | 60) => {
     setSpeed(speed);
@@ -63,6 +64,15 @@ const SimLayout = () => {
   const handleConfirmRestart = () => {
     setShowConfirm(false);
     setShowConfig(true);
+  };
+
+  const handleZoomControl = (direction: "in" | "out") => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("sim-camera-zoom", {
+        detail: { direction },
+      })
+    );
   };
 
   return (
@@ -117,7 +127,7 @@ const SimLayout = () => {
         </div>
       ) : null}
       <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-[auto_minmax(0,1fr)_auto]">
-        <div className="lg:col-span-2">
+        <div className="relative z-30 lg:col-span-2">
           <TopHud
             onPauseToggle={handlePause}
             onSpeedChange={handleSpeed}
@@ -137,7 +147,54 @@ const SimLayout = () => {
           <LeftTimeline />
         </div>
         <div className="relative min-h-0 overflow-hidden rounded-3xl border border-slate-800/60 bg-slate-950/60 shadow-[0_30px_80px_rgba(8,12,18,0.6)] lg:row-start-2 lg:col-start-2">
-          <CityCanvas />
+          <div className="absolute left-3 top-3 z-30 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => handleZoomControl("in")}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700/80 bg-slate-900/80 text-slate-100 shadow transition hover:border-emerald-400/70 hover:text-emerald-200"
+              aria-label="拡大"
+              title="拡大"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="M11 8v6" />
+                <path d="M8 11h6" />
+                <path d="M16 16l4 4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleZoomControl("out")}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700/80 bg-slate-900/80 text-slate-100 shadow transition hover:border-emerald-400/70 hover:text-emerald-200"
+              aria-label="縮小"
+              title="縮小"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="M8 11h6" />
+                <path d="M16 16l4 4" />
+              </svg>
+            </button>
+          </div>
+          <CityCanvas suppressOverlays={hasBlockingOverlay} />
           <SimStatusDock />
           {!world ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">

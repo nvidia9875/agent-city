@@ -4,7 +4,11 @@ import { Canvas } from "@react-three/fiber";
 import SceneRoot from "@/components/three/SceneRoot";
 import { useSimStore } from "@/store/useSimStore";
 
-const CityCanvas = () => {
+type CityCanvasProps = {
+  suppressOverlays?: boolean;
+};
+
+const CityCanvas = ({ suppressOverlays = false }: CityCanvasProps) => {
   const clearFocus = useSimStore((state) => state.clearFocus);
 
   return (
@@ -15,7 +19,7 @@ const CityCanvas = () => {
       onPointerMissed={() => clearFocus()}
     >
       <color attach="background" args={["#10151c"]} />
-      <SceneRoot />
+      <SceneRoot suppressOverlays={suppressOverlays} />
     </Canvas>
   );
 };

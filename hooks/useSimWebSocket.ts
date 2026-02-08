@@ -66,6 +66,7 @@ export const useSimWebSocket = () => {
   const setMetrics = useSimStore((state) => state.setMetrics);
   const setReasoning = useSimStore((state) => state.setReasoning);
   const setSimEnd = useSimStore((state) => state.setSimEnd);
+  const setConnectionReady = useSimStore((state) => state.setConnectionReady);
   const selectedAgentId = useSimStore((state) => state.selected.agentId);
   const selectedBuildingId = useSimStore((state) => state.selected.buildingId);
 
@@ -80,12 +81,14 @@ export const useSimWebSocket = () => {
       if (readyRef.current) return;
       readyRef.current = true;
       setReady(true);
+      setConnectionReady(true);
       pendingRef.current.forEach((msg) => sendRef.current?.(msg));
       pendingRef.current = [];
     };
     const markClosed = () => {
       readyRef.current = false;
       setReady(false);
+      setConnectionReady(false);
       pendingRef.current = [];
     };
     const connection = wsUrl
@@ -157,7 +160,15 @@ export const useSimWebSocket = () => {
       connection.close();
       markClosed();
     };
-  }, [addEvent, applyWorldDiff, setMetrics, setReasoning, setSimEnd, setWorld]);
+  }, [
+    addEvent,
+    applyWorldDiff,
+    setConnectionReady,
+    setMetrics,
+    setReasoning,
+    setSimEnd,
+    setWorld,
+  ]);
 
   useEffect(() => {
     if (!selectedAgentId) return;

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type {
   SimConfig,
   TownSize,
@@ -601,6 +601,20 @@ const IconTiming = ({ className = "h-4 w-4" }: IconProps) => (
   </svg>
 );
 
+const IconChevronDown = ({ className = "h-4 w-4" }: IconProps) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
+
 const SimConfigModal = ({
   config,
   ready,
@@ -879,6 +893,7 @@ const SimConfigModal = ({
   };
   const difficultyInactive =
     "border-slate-800/70 bg-slate-950/60 text-slate-500";
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   return (
     <section className="relative w-full max-w-none overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/90 text-slate-100 shadow-[0_40px_120px_rgba(4,8,16,0.65)]">
@@ -987,7 +1002,7 @@ const SimConfigModal = ({
           </p>
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
@@ -999,7 +1014,7 @@ const SimConfigModal = ({
                 </p>
                 <h3 className="text-sm font-semibold text-slate-100">町のスケール</h3>
                 <p className="text-[11px] text-slate-400">
-                  街の大きさと密度をスライダーで調整
+                  街の大きさをシンプルに調整
                 </p>
               </div>
             </div>
@@ -1019,14 +1034,6 @@ const SimConfigModal = ({
                 options={populationOptions}
                 value={config.population}
                 onChange={(value) => setField("population", value)}
-              />
-              <SliderRow
-                title="建物数"
-                subtitle="施設・住宅の総数"
-                icon={<IconBuilding className="h-4 w-4" />}
-                options={buildingOptions}
-                value={config.buildings}
-                onChange={(value) => setField("buildings", value)}
               />
             </div>
           </div>
@@ -1082,149 +1089,215 @@ const SimConfigModal = ({
               </div>
             </div>
           </div>
-
-          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
-                <IconFog className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Signal Field
-                </p>
-                <h3 className="text-sm font-semibold text-slate-100">情報環境</h3>
-                <p className="text-[11px] text-slate-400">
-                  公式情報の遅れや噂の濃さを調整
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3">
-              <SliderRow
-                title="公式警報遅延"
-                subtitle="公式情報が出るまでの時間"
-                icon={<IconClock className="h-4 w-4" />}
-                options={delayOptions}
-                value={config.officialDelayMinutes}
-                onChange={(value) => setField("officialDelayMinutes", value)}
-              />
-              <SliderRow
-                title="情報の曖昧さ"
-                subtitle="噂と公式情報の明瞭さ"
-                icon={<IconFog className="h-4 w-4" />}
-                options={ambiguityOptions}
-                value={config.ambiguityLevel}
-                onChange={(value) => setField("ambiguityLevel", value)}
-              />
-              <SliderRow
-                title="デマ強度"
-                subtitle="誤情報が広がる勢い"
-                icon={<IconAlert className="h-4 w-4" />}
-                options={misinfoOptions}
-                value={config.misinformationLevel}
-                onChange={(value) => setField("misinformationLevel", value)}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
-                <IconLanguage className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Comms Power
-                </p>
-                <h3 className="text-sm font-semibold text-slate-100">伝達力</h3>
-                <p className="text-[11px] text-slate-400">
-                  多言語対応と検証のスピード
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3">
-              <SliderRow
-                title="多言語対応"
-                subtitle="翻訳の行き渡り度"
-                icon={<IconLanguage className="h-4 w-4" />}
-                options={multilingualOptions}
-                value={config.multilingualCoverage}
-                onChange={(value) => setField("multilingualCoverage", value)}
-              />
-              <SliderRow
-                title="検証速度"
-                subtitle="ファクトチェックの速さ"
-                icon={<IconCheck className="h-4 w-4" />}
-                options={factCheckOptions}
-                value={config.factCheckSpeed}
-                onChange={(value) => setField("factCheckSpeed", value)}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
-                <IconTarget className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Intervention Budget
-                </p>
-                <h3 className="text-sm font-semibold text-slate-100">
-                  介入ポイント
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  介入カードで使える総量
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3">
-              <SliderRow
-                title="介入ポイント"
-                subtitle="介入に使えるポイント量"
-                icon={<IconTarget className="h-4 w-4" />}
-                options={interventionPointOptions}
-                value={config.interventionPoints}
-                onChange={(value) => setField("interventionPoints", value)}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3 lg:col-span-3 xl:col-span-2">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
-                <IconHeart className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Community Profile
-                </p>
-                <h3 className="text-sm font-semibold text-slate-100">住民プロフィール</h3>
-                <p className="text-[11px] text-slate-400">
-                  感情と年齢の傾向を選ぶ
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <SliderRow
-                title="住民の気分"
-                subtitle="感情のトーン"
-                icon={<IconHeart className="h-4 w-4" />}
-                options={emotionOptions}
-                value={config.emotionTone}
-                onChange={(value) => setField("emotionTone", value)}
-              />
-              <SliderRow
-                title="年齢層"
-                subtitle="人口構成の傾向"
-                icon={<IconAge className="h-4 w-4" />}
-                options={ageOptions}
-                value={config.ageProfile}
-                onChange={(value) => setField("ageProfile", value)}
-              />
-            </div>
-          </div>
         </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-900/30 p-2">
+          <button
+            className="flex w-full items-center justify-between rounded-xl border border-slate-700/70 bg-slate-950/50 px-3 py-3 text-left transition hover:border-slate-500/70 hover:bg-slate-900/60"
+            onClick={() => setShowAdvanced((current) => !current)}
+            type="button"
+            aria-expanded={showAdvanced}
+            aria-controls="advanced-settings-panel"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700/70 bg-slate-900/70 text-emerald-200">
+                <IconTarget className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Advanced Settings
+                </p>
+                <h3 className="text-sm font-semibold text-slate-100">高度な設定</h3>
+                <p className="text-[11px] text-slate-400">
+                  公式遅延・デマ・住民傾向などの詳細パラメータ
+                </p>
+              </div>
+            </div>
+            <span className="flex items-center gap-2 text-xs font-semibold text-emerald-200">
+              {showAdvanced ? "閉じる" : "開く"}
+              <IconChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${
+                  showAdvanced ? "rotate-180" : ""
+                }`}
+              />
+            </span>
+          </button>
+        </div>
+
+        {showAdvanced ? (
+          <div id="advanced-settings-panel" className="mt-4">
+            <div className="grid gap-3 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
+                  <IconBuilding className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Urban Density
+                  </p>
+                  <h3 className="text-sm font-semibold text-slate-100">建物密度</h3>
+                  <p className="text-[11px] text-slate-400">
+                    施設・住宅の総量を調整
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <SliderRow
+                  title="建物数"
+                  subtitle="施設・住宅の総数"
+                  icon={<IconBuilding className="h-4 w-4" />}
+                  options={buildingOptions}
+                  value={config.buildings}
+                  onChange={(value) => setField("buildings", value)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
+                  <IconFog className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Signal Field
+                  </p>
+                  <h3 className="text-sm font-semibold text-slate-100">情報環境</h3>
+                  <p className="text-[11px] text-slate-400">
+                    公式情報の遅れや噂の濃さを調整
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <SliderRow
+                  title="公式警報遅延"
+                  subtitle="公式情報が出るまでの時間"
+                  icon={<IconClock className="h-4 w-4" />}
+                  options={delayOptions}
+                  value={config.officialDelayMinutes}
+                  onChange={(value) => setField("officialDelayMinutes", value)}
+                />
+                <SliderRow
+                  title="情報の曖昧さ"
+                  subtitle="噂と公式情報の明瞭さ"
+                  icon={<IconFog className="h-4 w-4" />}
+                  options={ambiguityOptions}
+                  value={config.ambiguityLevel}
+                  onChange={(value) => setField("ambiguityLevel", value)}
+                />
+                <SliderRow
+                  title="デマ強度"
+                  subtitle="誤情報が広がる勢い"
+                  icon={<IconAlert className="h-4 w-4" />}
+                  options={misinfoOptions}
+                  value={config.misinformationLevel}
+                  onChange={(value) => setField("misinformationLevel", value)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
+                  <IconLanguage className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Comms Power
+                  </p>
+                  <h3 className="text-sm font-semibold text-slate-100">伝達力</h3>
+                  <p className="text-[11px] text-slate-400">
+                    多言語対応と検証のスピード
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <SliderRow
+                  title="多言語対応"
+                  subtitle="翻訳の行き渡り度"
+                  icon={<IconLanguage className="h-4 w-4" />}
+                  options={multilingualOptions}
+                  value={config.multilingualCoverage}
+                  onChange={(value) => setField("multilingualCoverage", value)}
+                />
+                <SliderRow
+                  title="検証速度"
+                  subtitle="ファクトチェックの速さ"
+                  icon={<IconCheck className="h-4 w-4" />}
+                  options={factCheckOptions}
+                  value={config.factCheckSpeed}
+                  onChange={(value) => setField("factCheckSpeed", value)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
+                  <IconTarget className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Intervention Budget
+                  </p>
+                  <h3 className="text-sm font-semibold text-slate-100">
+                    介入ポイント
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    介入カードで使える総量
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <SliderRow
+                  title="介入ポイント"
+                  subtitle="介入に使えるポイント量"
+                  icon={<IconTarget className="h-4 w-4" />}
+                  options={interventionPointOptions}
+                  value={config.interventionPoints}
+                  onChange={(value) => setField("interventionPoints", value)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-900/40 p-3 lg:col-span-3 xl:col-span-2">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-700/70 bg-slate-950/50 text-emerald-200">
+                  <IconHeart className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Community Profile
+                  </p>
+                  <h3 className="text-sm font-semibold text-slate-100">住民プロフィール</h3>
+                  <p className="text-[11px] text-slate-400">
+                    感情と年齢の傾向を選ぶ
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <SliderRow
+                  title="住民の気分"
+                  subtitle="感情のトーン"
+                  icon={<IconHeart className="h-4 w-4" />}
+                  options={emotionOptions}
+                  value={config.emotionTone}
+                  onChange={(value) => setField("emotionTone", value)}
+                />
+                <SliderRow
+                  title="年齢層"
+                  subtitle="人口構成の傾向"
+                  icon={<IconAge className="h-4 w-4" />}
+                  options={ageOptions}
+                  value={config.ageProfile}
+                  onChange={(value) => setField("ageProfile", value)}
+                />
+              </div>
+            </div>
+            </div>
+          </div>
+        ) : null}
 
       </div>
     </section>

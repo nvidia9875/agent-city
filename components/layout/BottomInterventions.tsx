@@ -284,8 +284,18 @@ const BottomInterventions = ({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-  const pointsLabel =
-    typeof maxPoints === "number" ? `${points} / ${maxPoints}` : `${points}`;
+  const gaugeMax =
+    typeof maxPoints === "number" && maxPoints > 0
+      ? maxPoints
+      : Math.max(points, 1);
+  const pointRatio = Math.max(0, Math.min(points / gaugeMax, 1));
+  const pointPercent = Math.round(pointRatio * 100);
+  const gaugeToneClass =
+    pointRatio <= 0.25
+      ? "from-rose-400 to-rose-500"
+      : pointRatio <= 0.55
+      ? "from-amber-300 to-amber-400"
+      : "from-emerald-300 to-emerald-400";
 
   const updateScrollState = () => {
     const container = scrollRef.current;
@@ -319,13 +329,35 @@ const BottomInterventions = ({
 
   return (
     <section className="rounded-3xl border border-slate-800/60 bg-slate-950/80 p-4 text-slate-100 backdrop-blur">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
           介入パネル
         </h2>
-        <span className="text-xs text-slate-400">
-          介入ポイント {pointsLabel} / クールダウン管理
-        </span>
+        <span className="text-xs text-slate-400">クールダウン管理</span>
+      </div>
+      <div className="mt-3 rounded-2xl border border-slate-800/70 bg-slate-900/45 p-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+              介入ポイント
+            </p>
+            <p className="mt-1 text-2xl font-semibold leading-none text-emerald-200">
+              {points}
+              <span className="ml-2 text-sm font-medium text-slate-400">
+                / {gaugeMax}
+              </span>
+            </p>
+          </div>
+          <span className="rounded-full border border-slate-700/70 bg-slate-950/60 px-3 py-1 text-xs font-semibold text-slate-300">
+            {pointPercent}%
+          </span>
+        </div>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-950/70">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r transition-all duration-300 ${gaugeToneClass}`}
+            style={{ width: `${pointPercent}%` }}
+          />
+        </div>
       </div>
       <div className="relative mt-4">
         <div

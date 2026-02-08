@@ -470,15 +470,15 @@ const createAgents = (
       ["adult", ageWeights.adult],
       ["senior", ageWeights.senior],
     ]);
-    const language = randomPick(["ja", "ja", "ja", "ja", "en", "zh", "ko"]);
-    const hearing = Math.random() > 0.92 ? "impaired" : "normal";
-    const mobility =
+    const language = randomPick(["ja", "ja", "ja", "ja", "en", "zh", "ko"]) as Agent["profile"]["language"];
+    const hearing = (Math.random() > 0.92 ? "impaired" : "normal") as Agent["profile"]["hearing"];
+    const mobility: Agent["profile"]["mobility"] =
       ageGroup === "senior"
         ? randomPick(["limited", "needs_assist", "normal"])
         : ageGroup === "child"
           ? randomPick(["normal", "limited"])
           : randomPick(["normal", "normal", "limited"]);
-    const household =
+    const household: Agent["profile"]["household"] =
       ageGroup === "child" ? "family" : randomPick(["alone", "family", "group"]);
     const role = randomPick(
       Object.keys(roleJobMap) as Array<Agent["profile"]["role"]>

@@ -375,6 +375,7 @@ const sendTo = (client: WebSocket, msg: WsServerMsg) => {
 
 const addEvent = (event: TimelineEvent) => {
   if (!world || simEnded) return;
+  const activeWorld = world;
   eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
   eventLog.unshift(event);
   if (eventLog.length > 200) eventLog.pop();
@@ -383,7 +384,7 @@ const addEvent = (event: TimelineEvent) => {
   void saveEvent(event);
   if (event.actors?.length) {
     event.actors.forEach((actorId) => {
-      const agent = world.agents[actorId];
+      const agent = activeWorld.agents[actorId];
       if (agent) {
         void recordEventMemory(agent, event);
       }
@@ -766,7 +767,7 @@ const tick = () => {
     if (neighbors.length === 0) return;
     const next = neighbors[Math.floor(Math.random() * neighbors.length)];
     if (next.x === agent.pos.x && next.y === agent.pos.y) return;
-    const speak = Math.random() > 0.9;
+    const speak = !isAiControlled && Math.random() > 0.9;
     mergeAgentPatch(agent.id, {
       pos: { x: next.x, y: next.y },
       dir:
@@ -1106,10 +1107,16 @@ const applyDecision = (
 ) => {
   if (!world || simEnded) return;
   const message = decision.message?.slice(0, 60);
+  const thoughtSeed = [decision.reflection, decision.plan]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  const thought = thoughtSeed ? thoughtSeed.slice(0, 120) : undefined;
   const action =
     decision.action === "OFFICIAL" && world && world.tick < officialDelayTicks
       ? "RUMOR"
       : decision.action;
+  const agentEvacuating = (agent.evacStatus ?? "STAY") === "EVACUATING";
   const simMinute = getSimMinute(world.tick);
   const fallbackActivity = deriveDailyActivity(agent, simMinute);
   const resolvedActivity = normalizeActivity(decision.activity);
@@ -1155,15 +1162,20 @@ const applyDecision = (
               ? "S"
               : "N";
       const bubbleKind = action === "EVACUATE" ? "EVACUATE" : "MOVE";
+      const moveThought =
+        action === "EVACUATE" || (action === "MOVE" && agentEvacuating)
+          ? thought
+          : undefined;
       applyWithDecision({
         pos: { x: target.x, y: target.y },
         dir,
         ...(action === "EVACUATE" ? { evacStatus: "EVACUATING" } : {}),
-        bubble: message
+        bubble: message || moveThought
           ? buildAgentBubble(agentSnapshot, {
               tick: world?.tick ?? 0,
               kind: bubbleKind,
               message,
+              thought: moveThought,
             })
           : agent.bubble,
       });
@@ -1384,11 +1396,13 @@ const applyDecision = (
   }
 
   if (action === "WAIT") {
+    const waitThought = agentEvacuating ? thought : undefined;
     applyWithDecision({
       bubble: buildAgentBubble(agentSnapshot, {
         tick: world?.tick ?? 0,
         kind: "ACTIVITY",
         message: nextActivity ? ACTIVITY_LABELS[nextActivity] : undefined,
+        thought: waitThought,
       }),
     });
   }

@@ -803,6 +803,8 @@ export const connectMockWs = (
       }
       if (msg.type === "INTERVENTION") {
         if (!world || simEnded) return;
+        const activeWorld = world;
+        const interventionTick = activeWorld.tick;
         const kindLabel: Record<string, string> = {
           official_alert: "公式警報一斉配信",
           open_shelter: "避難所拡張",
@@ -815,17 +817,15 @@ export const connectMockWs = (
         const diffAgents: Record<string, Partial<Agent>> = {};
         const diffBuildings: Record<string, Partial<Building>> = {};
         const mergeAgentPatch = (agentId: string, patch: Partial<Agent>) => {
-          if (!world) return;
-          const existing = world.agents[agentId];
+          const existing = activeWorld.agents[agentId];
           if (!existing) return;
-          world.agents[agentId] = { ...existing, ...patch };
+          activeWorld.agents[agentId] = { ...existing, ...patch };
           diffAgents[agentId] = { ...(diffAgents[agentId] ?? {}), ...patch };
         };
         const mergeBuildingPatch = (buildingId: string, patch: Partial<Building>) => {
-          if (!world) return;
-          const existing = world.buildings[buildingId];
+          const existing = activeWorld.buildings[buildingId];
           if (!existing) return;
-          world.buildings[buildingId] = { ...existing, ...patch };
+          activeWorld.buildings[buildingId] = { ...existing, ...patch };
           diffBuildings[buildingId] = { ...(diffBuildings[buildingId] ?? {}), ...patch };
         };
         const officialAcceptance = (agent: Agent, base: number) => {
@@ -840,7 +840,7 @@ export const connectMockWs = (
         };
         const event: TimelineEvent = {
           id: randomId("intervention"),
-          tick: world.tick,
+          tick: interventionTick,
           type: "INTERVENTION",
           message: `${kindLabel[msg.payload.kind] ?? msg.payload.kind}: ${
             msg.payload.message ?? "対応を実行しました"
@@ -849,12 +849,12 @@ export const connectMockWs = (
         emit({ type: "EVENT", event });
         eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
         if (msg.payload.kind === "official_alert") {
-          Object.values(world.agents).forEach((agent) => {
+          Object.values(activeWorld.agents).forEach((agent) => {
             if (Math.random() > officialAcceptance(agent, 0.85)) return;
             mergeAgentPatch(agent.id, {
               alertStatus: "OFFICIAL",
               bubble: buildAgentBubble(agent, {
-                tick: world.tick,
+                tick: interventionTick,
                 kind: "OFFICIAL",
                 message: msg.payload.message ?? "公式警報が届いた",
               }),
@@ -874,7 +874,7 @@ export const connectMockWs = (
         }
 
         if (msg.payload.kind === "fact_check") {
-          Object.values(world.agents).forEach((agent) => {
+          Object.values(activeWorld.agents).forEach((agent) => {
             if (agent.alertStatus !== "RUMOR") return;
             if (Math.random() > officialAcceptance(agent, 0.7)) return;
             const nextState = {
@@ -884,7 +884,7 @@ export const connectMockWs = (
             mergeAgentPatch(agent.id, {
               alertStatus: "OFFICIAL",
               bubble: buildAgentBubble(agent, {
-                tick: world.tick,
+                tick: interventionTick,
                 kind: "OFFICIAL",
                 message: msg.payload.message ?? "誤情報が訂正された",
               }),
@@ -895,7 +895,7 @@ export const connectMockWs = (
         }
 
         if (msg.payload.kind === "support_vulnerable") {
-          Object.values(world.agents).forEach((agent) => {
+          Object.values(activeWorld.agents).forEach((agent) => {
             if (isVulnerable(agent)) {
               const nextState = {
                 ...agent.state,
@@ -904,7 +904,7 @@ export const connectMockWs = (
               mergeAgentPatch(agent.id, {
                 evacStatus: agent.evacStatus === "HELPING" ? "HELPING" : "EVACUATING",
                 bubble: buildAgentBubble(agent, {
-                  tick: world.tick,
+                  tick: interventionTick,
                   kind: "SUPPORT",
                   message: msg.payload.message ?? "支援班が到着した",
                 }),
@@ -917,7 +917,7 @@ export const connectMockWs = (
               mergeAgentPatch(agent.id, {
                 evacStatus: "HELPING",
                 bubble: buildAgentBubble(agent, {
-                  tick: world.tick,
+                  tick: interventionTick,
                   kind: "SUPPORT",
                   message: msg.payload.message ?? "要支援者の誘導を開始",
                 }),
@@ -928,7 +928,7 @@ export const connectMockWs = (
         }
 
         if (msg.payload.kind === "open_shelter") {
-          Object.values(world.buildings).forEach((building) => {
+          Object.values(activeWorld.buildings).forEach((building) => {
             if (building.type !== "SHELTER" && building.type !== "SCHOOL") return;
             const nextOccupancy =
               typeof building.occupancy === "number"
@@ -944,15 +944,15 @@ export const connectMockWs = (
         if (Object.keys(diffAgents).length > 0 || Object.keys(diffBuildings).length > 0) {
           emit({
             type: "WORLD_DIFF",
-            tick: world.tick,
+            tick: interventionTick,
             agents: Object.keys(diffAgents).length > 0 ? diffAgents : undefined,
             buildings: Object.keys(diffBuildings).length > 0 ? diffBuildings : undefined,
           });
         }
 
-        metrics = computeMetricsFromWorld(world);
-        updateMetricPeaks(world.tick, metrics);
-        emit({ type: "METRICS", metrics, tick: world.tick });
+        metrics = computeMetricsFromWorld(activeWorld);
+        updateMetricPeaks(interventionTick, metrics);
+        emit({ type: "METRICS", metrics, tick: interventionTick });
         return;
       }
       if (msg.type === "SELECT_AGENT") {

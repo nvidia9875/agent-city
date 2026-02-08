@@ -17,6 +17,7 @@ type BubbleContext = {
   tick: number;
   kind?: BubbleKind;
   message?: string;
+  thought?: string;
 };
 
 const MAX_BUBBLE_CHARS = 160;
@@ -39,6 +40,13 @@ const clipText = (text: string, max: number) =>
 const normalizeQuote = (text?: string, max = 26) => {
   if (!text) return "";
   const cleaned = text.replace(/[。！？!?]/g, "").trim();
+  if (!cleaned) return "";
+  return clipText(cleaned, max);
+};
+
+const normalizeThought = (text?: string, max = 84) => {
+  if (!text) return "";
+  const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
   return clipText(cleaned, max);
 };
@@ -132,7 +140,7 @@ const LANGUAGE_LINES = ["言葉が通じるか不安。", "翻訳が欲しい。
 export const buildAgentBubble = (agent: Agent, context: BubbleContext) => {
   const base = `${agent.id}:${context.tick}:${context.kind ?? "AMBIENT"}:${
     context.message ?? ""
-  }`;
+  }:${context.thought ?? ""}`;
   const pick = (items: string[], salt: string) =>
     pickBySeed(items, hashSeed(`${base}:${salt}`));
 
@@ -160,6 +168,7 @@ export const buildAgentBubble = (agent: Agent, context: BubbleContext) => {
   const languageLine = agent.profile.language !== "ja" ? pick(LANGUAGE_LINES, "lang") : "";
 
   const quote = normalizeQuote(context.message);
+  const thought = normalizeThought(context.thought);
 
   const contextLine = (() => {
     switch (context.kind) {
@@ -194,7 +203,12 @@ export const buildAgentBubble = (agent: Agent, context: BubbleContext) => {
           ? pick([`話題は「${quote}」。`, `「${quote}」について話した。`, `${quote}を共有中。`], "talk")
           : pick(TALK_LINES, "talk");
       case "MOVE":
-        return pick(MOVE_LINES, "move");
+        return thought
+          ? pick(
+              [`移動しながら考え中: ${thought}`, `この道を選ぶ理由: ${thought}`, `頭の中: ${thought}`],
+              "move-thought"
+            )
+          : pick(MOVE_LINES, "move");
       case "ACTIVITY":
         return quote
           ? pick([`今は${quote}。`, `${quote}をしている。`, `${quote}中。`], "activity")
@@ -202,10 +216,17 @@ export const buildAgentBubble = (agent: Agent, context: BubbleContext) => {
             ? pick(ACTIVITY_LINES[agent.activity] ?? ACTIVITY_LINES.IDLE, "activity")
             : "";
       case "EVACUATE":
+        if (thought) {
+          return pick(
+            [`避難判断: ${thought}`, `避難中の考え: ${thought}`, `このまま避難継続: ${thought}`],
+            "evac-thought"
+          );
+        }
         return quote
           ? pick([`避難: ${quote}`, `「${quote}」に向かう。`, `${quote}へ移動中。`], "evac")
           : pick(EVAC_LINES.EVACUATING, "evacuate");
       default:
+        if (thought) return `思考: ${thought}`;
         if (agent.alertStatus === "RUMOR") return pick(RUMOR_LINES, "alert-rumor");
         if (agent.alertStatus === "OFFICIAL")
           return pick(OFFICIAL_LINES, "alert-official");
@@ -224,7 +245,7 @@ export const buildAgentBubble = (agent: Agent, context: BubbleContext) => {
     languageLine,
   ].filter(Boolean);
 
-  const extraSlots = contextLine ? 1 : 2;
+  const extraSlots = thought ? 0 : contextLine ? 1 : 2;
   const orderedExtras = extras
     .map((text, index) => ({
       text,

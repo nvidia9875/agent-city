@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useSimStore } from "@/store/useSimStore";
 import type { Metrics } from "@/types/sim";
 import {
@@ -21,31 +22,21 @@ const MetricGauge = ({
   accent: string;
 }) => {
   const clamped = clampValue(value);
-  const track = "rgba(148, 163, 184, 0.25)";
+  const track = "rgba(148, 163, 184, 0.22)";
 
   return (
-    <div className="group flex items-center gap-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 px-3 py-2 shadow-[0_10px_30px_rgba(8,12,18,0.35)] backdrop-blur transition hover:border-slate-600/70">
-      <div className="relative h-12 w-12">
-        <div
-          className="absolute inset-0 rounded-full"
-          style={{
-            background: `conic-gradient(${accent} ${clamped}%, ${track} ${clamped}% 100%)`,
-          }}
-        />
-        <div className="absolute inset-[3px] flex items-center justify-center rounded-full border border-slate-800/60 bg-slate-950/90 text-[11px] font-semibold text-slate-100">
-          {clamped}
-        </div>
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">
+    <div className="group rounded-xl border border-slate-800/60 bg-slate-900/40 px-2.5 py-2 shadow-[0_8px_20px_rgba(8,12,18,0.3)] backdrop-blur transition hover:border-slate-600/70">
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-[10px] uppercase tracking-[0.2em] text-slate-400">
           {label}
         </p>
-        <div className="mt-2 h-1.5 w-full rounded-full bg-slate-800/70">
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${clamped}%`, background: accent }}
-          />
-        </div>
+        <span className="text-xs font-semibold text-slate-100">{clamped}</span>
+      </div>
+      <div className="mt-1.5 h-1 w-full rounded-full" style={{ background: track }}>
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${clamped}%`, background: accent }}
+        />
       </div>
     </div>
   );
@@ -83,6 +74,8 @@ const TopHud = ({
   const metrics = useSimStore((state) => state.metrics);
   const ui = useSimStore((state) => state.ui);
   const simEnded = useSimStore((state) => state.sim.ended);
+  const [showInfo, setShowInfo] = useState(false);
+  const infoPanelRef = useRef<HTMLDivElement | null>(null);
 
   const metricList: Array<{
     key: keyof Metrics;
@@ -99,28 +92,70 @@ const TopHud = ({
     { key: "resourceMisallocation", label: "誤配分", accent: "#facc15" },
   ];
 
+  useEffect(() => {
+    if (!showInfo) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!infoPanelRef.current?.contains(target)) {
+        setShowInfo(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowInfo(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showInfo]);
+
   return (
-    <section className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-800/60 bg-slate-950/80 px-6 py-4 shadow-[0_20px_60px_rgba(8,12,18,0.5)] backdrop-blur">
+    <section className="relative z-30 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-800/60 bg-slate-950/80 px-5 py-3 shadow-[0_20px_60px_rgba(8,12,18,0.5)] backdrop-blur">
       <div className="flex items-center gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-            AgentTown
-          </p>
-          <h1 className="text-lg font-semibold text-slate-100">
+        <div className="relative" ref={infoPanelRef}>
+          <p className="text-[10px] tracking-[0.06em] text-slate-400">
             災害対応ミッション・コンソール
-          </h1>
-          <p className="mt-1 text-[10px] text-slate-500">
-            シナリオ: {TERRAIN_LABELS[terrain]}・{DISASTER_LABELS[disaster]} / 公式警報:{" "}
-            {officialDelayMinutes}分遅延 / 住民気分: {EMOTION_TONE_LABELS[emotionTone]} /
-            年齢層: {AGE_PROFILE_LABELS[ageProfile]}
           </p>
-          <p className="mt-1 text-[10px] text-slate-500">
-            曖昧さ {ambiguityLevel}% / デマ強度 {misinformationLevel}% / 多言語対応{" "}
-            {multilingualCoverage}% / 検証速度 {factCheckSpeed}%
-          </p>
-          <p className="mt-1 text-[10px] text-slate-500">
-            目標: 公式到達・要支援到達を上げ、噂拡散・混雑度を下げる。
-          </p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-semibold uppercase tracking-[0.22em] text-slate-100">
+              AGENT TOWN
+            </h1>
+            <button
+              type="button"
+              onClick={() => setShowInfo((current) => !current)}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-700/80 bg-slate-900/60 text-[11px] font-semibold text-slate-200 transition hover:border-emerald-400/70 hover:text-emerald-200"
+              aria-label="シナリオ情報を表示"
+              aria-expanded={showInfo}
+            >
+              i
+            </button>
+          </div>
+          {showInfo ? (
+            <div className="absolute left-0 top-full z-[90] mt-2 w-[min(86vw,620px)] rounded-2xl border border-slate-700/80 bg-slate-950/95 px-4 py-3 text-[11px] leading-relaxed text-slate-200 shadow-[0_18px_36px_rgba(2,6,16,0.6)]">
+              <span className="absolute -top-1 left-10 h-2 w-2 rotate-45 border-l border-t border-slate-700/80 bg-slate-950/95" />
+              <p>
+                シナリオ: {TERRAIN_LABELS[terrain]}・{DISASTER_LABELS[disaster]} / 公式警報:{" "}
+                {officialDelayMinutes}分遅延 / 住民気分: {EMOTION_TONE_LABELS[emotionTone]} /
+                年齢層: {AGE_PROFILE_LABELS[ageProfile]}
+              </p>
+              <p className="mt-2">
+                曖昧さ {ambiguityLevel}% / デマ強度 {misinformationLevel}% / 多言語対応{" "}
+                {multilingualCoverage}% / 検証速度 {factCheckSpeed}%
+              </p>
+              <p className="mt-2">
+                目標: 公式到達・要支援到達を上げ、噂拡散・混雑度を下げる。
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-200">
@@ -152,7 +187,7 @@ const TopHud = ({
           {ui.paused ? "再開" : "一時停止"}
         </button>
       </div>
-      <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid w-full gap-1.5 sm:grid-cols-4 xl:grid-cols-8">
         {metricList.map(({ key, label, accent }) => (
           <MetricGauge
             key={key}

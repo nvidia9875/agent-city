@@ -43,6 +43,7 @@ type SimState = {
   world?: World;
   metrics?: Metrics;
   metricsTick?: number;
+  connectionReady: boolean;
   metricsHistory: Array<{ tick: number; metrics: Metrics }>;
   timeline: TimelineEvent[];
   selected: { agentId?: AgentId; buildingId?: BuildingId };
@@ -60,6 +61,7 @@ type SimState = {
   setMetrics: (metrics: Metrics, tick: number) => void;
   setReasoning: (reasoning: AgentReasoning) => void;
   setSimEnd: (summary: SimEndSummary) => void;
+  setConnectionReady: (ready: boolean) => void;
   resetSim: () => void;
   selectAgent: (agentId: AgentId) => void;
   selectBuilding: (buildingId: BuildingId) => void;
@@ -77,6 +79,7 @@ export const useSimStore = create<SimState>((set, get) => ({
   world: undefined,
   metrics: undefined,
   metricsTick: undefined,
+  connectionReady: false,
   metricsHistory: [],
   timeline: [],
   selected: {},
@@ -155,6 +158,7 @@ export const useSimStore = create<SimState>((set, get) => ({
       sim: { ended: true, summary },
       ui: { ...state.ui, paused: true },
     })),
+  setConnectionReady: (ready) => set({ connectionReady: ready }),
   resetSim: () =>
     set((state) => ({
       world: undefined,

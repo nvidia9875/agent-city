@@ -216,7 +216,7 @@ const Trees = () => {
 
   useLayoutEffect(() => {
     const updateInstances = (
-      ref: RefObject<THREE.InstancedMesh>,
+      ref: RefObject<THREE.InstancedMesh | null>,
       items: Instance[],
       colors?: THREE.Color[]
     ) => {

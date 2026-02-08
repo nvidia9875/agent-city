@@ -43,9 +43,14 @@ type BubbleAgent = {
   bubble: string;
 };
 
-const AgentBubbles = () => {
+type AgentBubblesProps = {
+  hidden?: boolean;
+};
+
+const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
   const world = useSimStore((state) => state.world);
   const simEnded = useSimStore((state) => state.sim.ended);
+  const connectionReady = useSimStore((state) => state.connectionReady);
   const [, forceRender] = useState(0);
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
   const [visibleText, setVisibleText] = useState<Record<string, string>>({});
@@ -117,7 +122,7 @@ const AgentBubbles = () => {
   }, [bubbleAgents]);
 
   useFrame((state, delta) => {
-    if (simEnded) return;
+    if (hidden || simEnded || !connectionReady) return;
     timeRef.current += delta;
     const elapsed = state.clock.getElapsedTime();
     let updated = false;
@@ -249,7 +254,9 @@ const AgentBubbles = () => {
     }
   });
 
-  if (!world || bubbleAgents.length === 0 || simEnded) return null;
+  if (hidden || !world || bubbleAgents.length === 0 || simEnded || !connectionReady) {
+    return null;
+  }
 
   return (
     <group>

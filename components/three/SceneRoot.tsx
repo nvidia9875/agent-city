@@ -9,7 +9,11 @@ import AgentBubbles from "@/components/three/AgentBubbles";
 import EntityTooltip from "@/components/three/EntityTooltip";
 import Cars from "@/components/three/Cars";
 
-const SceneRoot = () => {
+type SceneRootProps = {
+  suppressOverlays?: boolean;
+};
+
+const SceneRoot = ({ suppressOverlays = false }: SceneRootProps) => {
   return (
     <>
       <IsoCamera />
@@ -21,8 +25,8 @@ const SceneRoot = () => {
       <Buildings />
       <Cars />
       <Agents />
-      <AgentBubbles />
-      <EntityTooltip />
+      <AgentBubbles hidden={suppressOverlays} />
+      <EntityTooltip hidden={suppressOverlays} />
     </>
   );
 };

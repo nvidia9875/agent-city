@@ -279,8 +279,8 @@ MoveOptions: ${JSON.stringify(input.moveOptions)}
 let adkRuntimePromise:
   | Promise<{
       runner: unknown;
-      isFinalResponse: (event: unknown) => boolean;
-      createUserContent: (text: string) => unknown;
+      isFinalResponse: unknown;
+      createUserContent: unknown;
     }>
   | null = null;
 
@@ -364,6 +364,8 @@ const generateAgentDecisionWithAdk = async (input: {
 }): Promise<AgentDecision> => {
   ensureAdkVertexEnv();
   const { runner, isFinalResponse, createUserContent } = await getAdkRuntime();
+  const isFinalResponseFn = isFinalResponse as (event: unknown) => boolean;
+  const createUserContentFn = createUserContent as (text: string) => unknown;
   const sessionId = `decision-${input.agent.id}`;
   const userId = "sim";
   const sessionService = (runner as AdkRunner).sessionService;
@@ -373,7 +375,7 @@ const generateAgentDecisionWithAdk = async (input: {
     // ignore if session already exists
   }
 
-  const newMessage = createUserContent(buildDecisionPrompt(input));
+  const newMessage = createUserContentFn(buildDecisionPrompt(input));
   let text = "";
   const iterator = (runner as AdkRunner).runAsync({
     userId,
@@ -382,7 +384,7 @@ const generateAgentDecisionWithAdk = async (input: {
   }) as AsyncIterable<unknown>;
 
   for await (const event of iterator) {
-    if (!isFinalResponse(event)) continue;
+    if (!isFinalResponseFn(event)) continue;
     const content = (event as { content?: { parts?: Array<{ text?: string }> } }).content;
     const parts = content?.parts ?? [];
     text = parts.map((part) => part.text ?? "").join("");

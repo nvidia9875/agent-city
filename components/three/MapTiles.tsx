@@ -249,7 +249,7 @@ const MapTiles = () => {
   useLayoutEffect(() => {
     if (!world) return;
     const updateInstances = (
-      ref: RefObject<THREE.InstancedMesh>,
+      ref: RefObject<THREE.InstancedMesh | null>,
       items: Array<{
         x: number;
         z: number;
