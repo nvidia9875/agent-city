@@ -27,6 +27,82 @@ variable "cloud_run_ws_service_name" {
   default     = "agenttown-ws"
 }
 
+variable "enable_budget_controls" {
+  type        = bool
+  description = "Enable budget alerting and automatic public access stop"
+  default     = false
+}
+
+variable "billing_account_id" {
+  type        = string
+  description = "Billing account ID (e.g. 000000-000000-000000)"
+  default     = ""
+
+  validation {
+    condition     = !var.enable_budget_controls || trimspace(var.billing_account_id) != ""
+    error_message = "billing_account_id is required when enable_budget_controls is true."
+  }
+}
+
+variable "budget_alert_email" {
+  type        = string
+  description = "Email address that receives budget alerts"
+  default     = ""
+
+  validation {
+    condition     = !var.enable_budget_controls || trimspace(var.budget_alert_email) != ""
+    error_message = "budget_alert_email is required when enable_budget_controls is true."
+  }
+}
+
+variable "budget_amount" {
+  type        = number
+  description = "Monthly budget amount"
+  default     = 50000
+}
+
+variable "budget_currency_code" {
+  type        = string
+  description = "Budget currency code"
+  default     = "JPY"
+}
+
+variable "budget_display_name" {
+  type        = string
+  description = "Display name for the budget"
+  default     = "agenttown-monthly-budget"
+}
+
+variable "budget_alert_topic_name" {
+  type        = string
+  description = "Pub/Sub topic name for budget notifications"
+  default     = "agenttown-budget-alerts"
+}
+
+variable "budget_thresholds" {
+  type        = list(number)
+  description = "Threshold percentages for budget notifications"
+  default     = [0.5, 0.8, 1.0]
+}
+
+variable "budget_auto_stop_threshold" {
+  type        = number
+  description = "Threshold ratio to stop public access (1.0 = 100%)"
+  default     = 1.0
+}
+
+variable "budget_guard_function_name" {
+  type        = string
+  description = "Cloud Function name that handles budget alerts"
+  default     = "agenttown-budget-guard"
+}
+
+variable "budget_guard_dry_run" {
+  type        = bool
+  description = "If true, budget guard logs actions without applying changes"
+  default     = false
+}
+
 variable "service_account_name" {
   type        = string
   description = "Service account id (without domain)"

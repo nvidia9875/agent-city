@@ -48,6 +48,21 @@ output "cloud_run_ws_service_name" {
   description = "Cloud Run websocket service name"
 }
 
+output "budget_controls_enabled" {
+  value       = local.budget_controls_enabled
+  description = "Whether budget controls are enabled"
+}
+
+output "budget_alert_topic" {
+  value       = local.budget_controls_enabled ? google_pubsub_topic.budget_alerts[0].id : null
+  description = "Pub/Sub topic for budget notifications"
+}
+
+output "budget_guard_function_name" {
+  value       = local.budget_controls_enabled ? google_cloudfunctions2_function.budget_guard[0].name : null
+  description = "Cloud Function name for budget guard"
+}
+
 output "db_instance_connection_name" {
   value       = google_sql_database_instance.primary.connection_name
   description = "Cloud SQL connection name"

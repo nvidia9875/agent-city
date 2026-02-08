@@ -74,11 +74,42 @@ gh auth login
 
 `main` ブランチに push するか、GitHub Actions の `Deploy to Cloud Run` を `workflow_dispatch` で実行してください。
 
+## 5. 予算アラート + 自動公開停止（任意）
+
+月次予算を超えたときにメール通知し、Cloud Run の公開アクセスを自動停止できます。
+
+```bash
+cd infra
+terraform apply \
+  -var="project_id=YOUR_PROJECT_ID" \
+  -var="github_owner=YOUR_GITHUB_OWNER" \
+  -var="github_repo=YOUR_GITHUB_REPO" \
+  -var="enable_budget_controls=true" \
+  -var="billing_account_id=YOUR_BILLING_ACCOUNT_ID" \
+  -var="budget_alert_email=YOUR_EMAIL" \
+  -var="budget_amount=50000"
+```
+
+設定される内容:
+
+- Cloud Billing Budget（月次 50,000 JPY）
+- 予算閾値メール通知（Monitoring Notification Channel）
+- Pub/Sub 通知
+- 通知を受けて Cloud Run 公開停止する Cloud Functions Gen2
+
+予算超過時の停止動作:
+
+- Cloud Run `allUsers` Invoker を削除
+- Cloud Run ingress を `INTERNAL_ONLY` に変更
+
 ## 主な出力値
 
 - `service_account_email`: Cloud Run 実行用サービスアカウント
 - `github_actions_service_account_email`: GitHub Actions 用デプロイサービスアカウント
 - `github_workload_identity_provider`: GitHub Actions 認証に使う WIF Provider 名
 - `artifact_registry_path`: `REGION-docker.pkg.dev/PROJECT/REPO` 形式のイメージパス
+- `budget_controls_enabled`: 予算制御の有効/無効
+- `budget_alert_topic`: 予算通知用 Pub/Sub topic
+- `budget_guard_function_name`: 予算ガード関数名
 - `db_*`: Cloud SQL 接続情報
 - `vector_*`: Vector Search の Index / Endpoint 情報
