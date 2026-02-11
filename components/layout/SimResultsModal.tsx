@@ -95,13 +95,13 @@ const getScoreGrade = (score: number) => {
 const buildScoreBreakdown = (metrics: Metrics) => {
   const parts = [
     {
-      label: "公式到達",
+      label: "行政情報の到達",
       value: metrics.officialReach,
       weight: 0.2,
       tone: "text-emerald-300",
     },
     {
-      label: "要支援到達",
+      label: "要支援者への到達",
       value: metrics.vulnerableReach,
       weight: 0.2,
       tone: "text-sky-300",
@@ -125,7 +125,7 @@ const buildScoreBreakdown = (metrics: Metrics) => {
       tone: "text-rose-300",
     },
     {
-      label: "公式信頼",
+      label: "行政情報の信頼",
       value: metrics.trustIndex,
       weight: 0.1,
       tone: "text-emerald-200",
@@ -166,14 +166,14 @@ const buildSparkPath = (data: number[], width: number, height: number) => {
 const buildMissionChecks = (metrics: Metrics) => [
   {
     key: "officialReach",
-    label: "公式到達",
+    label: "行政情報の到達",
     current: metrics.officialReach,
     target: `${STABILIZE_TARGET.officialMin}以上`,
     ok: metrics.officialReach >= STABILIZE_TARGET.officialMin,
   },
   {
     key: "vulnerableReach",
-    label: "要支援到達",
+    label: "要支援者への到達",
     current: metrics.vulnerableReach,
     target: `${STABILIZE_TARGET.vulnerableMin}以上`,
     ok: metrics.vulnerableReach >= STABILIZE_TARGET.vulnerableMin,
@@ -201,7 +201,7 @@ const buildMissionChecks = (metrics: Metrics) => [
   },
   {
     key: "trustIndex",
-    label: "公式信頼",
+    label: "行政情報の信頼",
     current: metrics.trustIndex,
     target: `${STABILIZE_TARGET.trustMin}以上`,
     ok: metrics.trustIndex >= STABILIZE_TARGET.trustMin,
@@ -228,6 +228,66 @@ const buildMissionChecks = (metrics: Metrics) => [
     ok: metrics.stabilityScore >= STABILIZE_TARGET.stabilityMin,
   },
 ];
+
+const MISSION_CHECK_VISUALS: Record<
+  string,
+  { icon: string; cardTone: string; helper: string }
+> = {
+  officialReach: {
+    icon: "📡",
+    cardTone:
+      "border-cyan-300/35 bg-[linear-gradient(135deg,rgba(8,47,73,0.5),rgba(12,74,110,0.14))]",
+    helper: "行政情報の広がり",
+  },
+  vulnerableReach: {
+    icon: "🫶",
+    cardTone:
+      "border-sky-300/35 bg-[linear-gradient(135deg,rgba(12,74,110,0.5),rgba(30,64,175,0.14))]",
+    helper: "要支援者のフォロー",
+  },
+  confusion: {
+    icon: "🌀",
+    cardTone:
+      "border-rose-300/35 bg-[linear-gradient(135deg,rgba(76,5,25,0.5),rgba(127,29,29,0.14))]",
+    helper: "混乱を抑える",
+  },
+  rumorSpread: {
+    icon: "🗣️",
+    cardTone:
+      "border-amber-300/35 bg-[linear-gradient(135deg,rgba(120,53,15,0.5),rgba(146,64,14,0.14))]",
+    helper: "うわさを抑える",
+  },
+  panicIndex: {
+    icon: "😵",
+    cardTone:
+      "border-orange-300/35 bg-[linear-gradient(135deg,rgba(124,45,18,0.5),rgba(154,52,18,0.14))]",
+    helper: "パニックを抑える",
+  },
+  trustIndex: {
+    icon: "🛡️",
+    cardTone:
+      "border-emerald-300/35 bg-[linear-gradient(135deg,rgba(6,78,59,0.5),rgba(6,95,70,0.14))]",
+    helper: "行政情報の信頼",
+  },
+  misinfoBelief: {
+    icon: "🧪",
+    cardTone:
+      "border-fuchsia-300/35 bg-[linear-gradient(135deg,rgba(88,28,135,0.5),rgba(126,34,206,0.14))]",
+    helper: "誤情報への信念",
+  },
+  resourceMisallocation: {
+    icon: "📦",
+    cardTone:
+      "border-indigo-300/35 bg-[linear-gradient(135deg,rgba(49,46,129,0.5),rgba(67,56,202,0.14))]",
+    helper: "支援の配分",
+  },
+  stabilityScore: {
+    icon: "🌟",
+    cardTone:
+      "border-lime-300/35 bg-[linear-gradient(135deg,rgba(63,98,18,0.5),rgba(77,124,15,0.14))]",
+    helper: "総合の安定度",
+  },
+};
 
 const minGap = (value: number, min: number) => Math.max(0, min - value);
 const maxGap = (value: number, max: number) => Math.max(0, value - max);
@@ -267,8 +327,8 @@ const resolveTimeLimitFeedback = (metrics: Metrics) => {
   if (dominant.key === "communication") {
     return {
       pattern: "判定: 情報到達不足",
-      desc: "公式情報と要支援者への到達が不足し、収束条件に届きませんでした。",
-      tip: "序盤で公式警報・多言語配信・要支援者支援を優先してください。",
+      desc: "行政からのお知らせと要支援者への案内が不足し、収束条件に届きませんでした。",
+      tip: "序盤で行政アラート・多言語配信・要支援者支援を優先してください。",
     };
   }
   if (dominant.key === "rumor") {
@@ -281,8 +341,8 @@ const resolveTimeLimitFeedback = (metrics: Metrics) => {
   if (dominant.key === "trust") {
     return {
       pattern: "判定: 信頼回復遅れ",
-      desc: "公式信頼の回復が遅く、誤情報信念の低下が不十分でした。",
-      tip: "公式発信の頻度を維持しつつ、誤情報訂正を継続すると改善しやすいです。",
+      desc: "行政情報への信頼回復が遅く、誤情報信念の低下が不十分でした。",
+      tip: "行政アナウンスの頻度を維持しつつ、誤情報訂正を継続すると改善しやすいです。",
     };
   }
   if (dominant.key === "operations") {
@@ -395,29 +455,72 @@ const RatioBar = ({
   label: string;
   segments: Array<{ label: string; value: number; color: string }>;
 }) => {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
+  const totalRaw = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const total = totalRaw || 1;
+  const [hoveredSegmentLabel, setHoveredSegmentLabel] = useState<string | null>(null);
+  const withPercent = segments.map((segment, index) => {
+    const widthPercent = (segment.value / total) * 100;
+    const leftPercent = segments
+      .slice(0, index)
+      .reduce((sum, prev) => sum + (prev.value / total) * 100, 0);
+    return {
+      ...segment,
+      percent: Math.round(widthPercent),
+      widthPercent,
+      leftPercent,
+    };
+  });
+  const hoveredSegment = withPercent.find(
+    (segment) => segment.label === hoveredSegmentLabel
+  );
+  const tooltipLeftPercent = hoveredSegment
+    ? Math.min(
+        96,
+        Math.max(4, hoveredSegment.leftPercent + hoveredSegment.widthPercent / 2)
+      )
+    : 50;
+
   return (
     <div className="rounded-2xl border border-slate-800/70 bg-slate-950/60 p-4">
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span className="uppercase tracking-[0.2em]">{label}</span>
-        <span className="text-slate-500">Total {total}</span>
+        <span className="text-slate-500">母数 {totalRaw}人 (100%)</span>
       </div>
-      <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-slate-800">
-        {segments.map((segment) => (
+      <div
+        className="relative mt-3"
+        onMouseLeave={() => setHoveredSegmentLabel(null)}
+      >
+        {hoveredSegment ? (
           <div
-            key={segment.label}
-            style={{ width: `${(segment.value / total) * 100}%` }}
-            className={segment.color}
-          />
-        ))}
+            className="pointer-events-none absolute -top-9 z-20 -translate-x-1/2 whitespace-nowrap rounded-lg border border-slate-700/80 bg-slate-950/95 px-2 py-1 text-[10px] text-slate-100 shadow-lg"
+            style={{ left: `${tooltipLeftPercent}%` }}
+          >
+            {hoveredSegment.label}: {hoveredSegment.value} ({hoveredSegment.percent}%)
+          </div>
+        ) : null}
+        <div className="flex h-3 overflow-hidden rounded-full bg-slate-800">
+          {withPercent.map((segment) => (
+            <button
+              key={segment.label}
+              type="button"
+              style={{ width: `${segment.widthPercent}%` }}
+              className={`${segment.color} h-full border-0 p-0 transition-opacity hover:opacity-80 focus-visible:opacity-80 focus-visible:outline-none`}
+              onMouseEnter={() => setHoveredSegmentLabel(segment.label)}
+              onFocus={() => setHoveredSegmentLabel(segment.label)}
+              onBlur={() => setHoveredSegmentLabel((prev) =>
+                prev === segment.label ? null : prev
+              )}
+              aria-label={`${segment.label}: ${segment.value} (${segment.percent}%)`}
+            />
+          ))}
+        </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-        {segments.map((segment) => (
+        {withPercent.map((segment) => (
           <div key={segment.label} className="flex items-center justify-between">
             <span>{segment.label}</span>
             <span className="text-slate-300">
-              {segment.value} (
-              {Math.round((segment.value / total) * 100)}%)
+              {segment.value} ({segment.percent}%)
             </span>
           </div>
         ))}
@@ -427,16 +530,87 @@ const RatioBar = ({
 };
 
 const EVENT_LABELS: Record<string, string> = {
-  ALERT: "警報",
-  OFFICIAL: "公式情報",
-  RUMOR: "噂",
-  EVACUATE: "避難",
-  SUPPORT: "支援",
-  CHECKIN: "安否",
+  ALERT: "警報アラート",
+  OFFICIAL: "行政アナウンス",
+  RUMOR: "うわさ拡散",
+  EVACUATE: "避難行動",
+  SUPPORT: "救助・支援",
+  CHECKIN: "安否報告",
   TALK: "会話",
   MOVE: "移動",
-  ACTIVITY: "生活",
-  INTERVENTION: "介入",
+  ACTIVITY: "日常行動",
+  INTERVENTION: "プレイヤー介入",
+};
+
+const EVENT_VISUALS: Record<
+  string,
+  {
+    icon: string;
+    detail: string;
+    cardTone: string;
+    meterTone: string;
+  }
+> = {
+  ALERT: {
+    icon: "🚨",
+    detail: "危険を知らせる緊急通知",
+    cardTone: "border-rose-300/40 bg-rose-500/10",
+    meterTone: "bg-rose-400",
+  },
+  OFFICIAL: {
+    icon: "📣",
+    detail: "行政からのお知らせ",
+    cardTone: "border-cyan-300/40 bg-cyan-500/10",
+    meterTone: "bg-cyan-400",
+  },
+  RUMOR: {
+    icon: "🗣️",
+    detail: "未確認のうわさ情報",
+    cardTone: "border-amber-300/40 bg-amber-500/10",
+    meterTone: "bg-amber-400",
+  },
+  EVACUATE: {
+    icon: "🏃",
+    detail: "避難移動のアクション",
+    cardTone: "border-sky-300/40 bg-sky-500/10",
+    meterTone: "bg-sky-400",
+  },
+  SUPPORT: {
+    icon: "🤝",
+    detail: "救助・支援の行動ログ",
+    cardTone: "border-emerald-300/40 bg-emerald-500/10",
+    meterTone: "bg-emerald-400",
+  },
+  CHECKIN: {
+    icon: "✅",
+    detail: "安否確認・連絡の記録",
+    cardTone: "border-lime-300/40 bg-lime-500/10",
+    meterTone: "bg-lime-400",
+  },
+  TALK: {
+    icon: "💬",
+    detail: "住民同士の会話",
+    cardTone: "border-fuchsia-300/40 bg-fuchsia-500/10",
+    meterTone: "bg-fuchsia-400",
+  },
+  MOVE: {
+    icon: "🧭",
+    detail: "エリア間の移動",
+    cardTone: "border-indigo-300/40 bg-indigo-500/10",
+    meterTone: "bg-indigo-400",
+  },
+  ACTIVITY: {
+    icon: "🏠",
+    detail: "日常行動のログ",
+    cardTone: "border-slate-400/40 bg-slate-600/20",
+    meterTone: "bg-slate-400",
+  },
+  INTERVENTION: {
+    icon: "🎯",
+    detail: "プレイヤー操作で発生",
+    cardTone: "border-orange-300/40 bg-orange-500/10",
+    meterTone: "bg-orange-400",
+  },
 };
 
 const VECTOR_STATUS_LABELS: Record<string, string> = {
@@ -507,15 +681,29 @@ const hasDominantType = (
     targets.includes(type.type as TimelineEventType)
   );
 
-const isConcernThread = (thread: VectorConversationThread) =>
-  thread.mood === "ESCALATING" ||
-  thread.contamination >= 35 ||
-  hasDominantType(thread, ["RUMOR"]);
-
-const isResolutionThread = (thread: VectorConversationThread) =>
+const hasResolutionSignal = (thread: VectorConversationThread) =>
   thread.mood === "STABILIZING" ||
   typeof thread.reversalTick === "number" ||
   hasDominantType(thread, ["CHECKIN", "OFFICIAL", "ALERT"]);
+
+const isConcernThread = (thread: VectorConversationThread) => {
+  const hasRumorSignal =
+    thread.mood === "ESCALATING" ||
+    thread.contamination >= 50 ||
+    hasDominantType(thread, ["RUMOR"]);
+  if (!hasRumorSignal) return false;
+
+  const likelyResolved =
+    hasResolutionSignal(thread) &&
+    thread.mood !== "ESCALATING" &&
+    thread.contamination < 60 &&
+    !hasDominantType(thread, ["RUMOR"]);
+
+  return !likelyResolved;
+};
+
+const isResolutionThread = (thread: VectorConversationThread) =>
+  hasResolutionSignal(thread);
 
 const buildVectorPlayerSummary = (input: {
   threads: VectorConversationThread[];
@@ -568,7 +756,7 @@ const buildVectorPlayerSummary = (input: {
           return `安否確認: ${trimLine(thread.lead, 48)}`;
         }
         if (hasDominantType(thread, ["OFFICIAL", "ALERT"])) {
-          return `公式浸透: ${trimLine(thread.lead, 48)}`;
+          return `行政情報が浸透: ${trimLine(thread.lead, 48)}`;
         }
         return `鎮静化: ${trimLine(thread.lead, 48)}`;
       })
@@ -614,7 +802,7 @@ const buildVectorActionHint = (input: {
   hasConcern: boolean;
 }) => {
   if (!input.vectorMetricsAvailable) {
-    return "Embedding待機が発生したため部分結果です。公式発信と安否確認を優先して次回集計で汚染度を確認してください。";
+    return "Embedding待機が発生したため部分結果です。行政アナウンスと安否確認を優先して次回集計で汚染度を確認してください。";
   }
   if (
     input.rumorScore >= 60 ||
@@ -629,12 +817,12 @@ const buildVectorActionHint = (input: {
     input.stabilizationRate >= 50 ||
     input.metrics.officialReach >= STABILIZE_TARGET.officialMin
   ) {
-    return "収束傾向です。公式発信の頻度を維持し、安否ラインを途切れさせない運用が有効です。";
+    return "収束傾向です。行政アナウンスの頻度を維持し、安否ラインを途切れさせない運用が有効です。";
   }
   if (input.hasConcern) {
-    return "不安会話が残っています。公式警報とルート誘導を組み合わせ、噂に先回りしてください。";
+    return "不安会話が残っています。行政アラートとルート誘導を組み合わせ、噂に先回りしてください。";
   }
-  return "会話は拮抗しています。次のターンで公式発信を重ね、優勢を固定すると安定化しやすくなります。";
+  return "会話は拮抗しています。次のターンで行政アナウンスを重ね、優勢を固定すると安定化しやすくなります。";
 };
 
 const resolveIssueTone = (issue?: string) => {
@@ -675,6 +863,11 @@ const SimResultsModal = ({
 
   const alertStatus = summary.population.alertStatus;
   const evacStatus = summary.population.evacStatus;
+  const eventEntries = Object.entries(summary.eventCounts).sort(
+    ([, left], [, right]) => right - left
+  );
+  const totalEventsRaw = eventEntries.reduce((sum, [, value]) => sum + value, 0);
+  const totalEvents = totalEventsRaw || 1;
   const realWorldEquivalent = formatRealWorldEquivalent(summary.simulatedMinutes);
   const vectorInsights = summary.vectorInsights;
   const vectorStatus = vectorInsights?.status ?? "unavailable";
@@ -855,7 +1048,7 @@ const SimResultsModal = ({
                 />
                 <MetricCard
                   compact
-                  label="公式到達"
+                  label="行政情報の到達"
                   value={summary.metrics.officialReach}
                   peak={summary.peaks.officialReach}
                   history={history.officialReach}
@@ -863,7 +1056,7 @@ const SimResultsModal = ({
                 />
                 <MetricCard
                   compact
-                  label="要支援到達"
+                  label="要支援者への到達"
                   value={summary.metrics.vulnerableReach}
                   peak={summary.peaks.vulnerableReach}
                   history={history.vulnerableReach}
@@ -880,23 +1073,40 @@ const SimResultsModal = ({
                   {buildMissionChecks(summary.metrics).map((mission) => (
                     <div
                       key={mission.key}
-                      className="flex items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-2"
+                      className={`rounded-xl border p-2.5 ${
+                        MISSION_CHECK_VISUALS[mission.key]?.cardTone ??
+                        "border-slate-700/60 bg-slate-900/60"
+                      }`}
                     >
-                      <div>
-                        <p className="text-slate-300">
-                          {mission.label} {mission.target}
-                        </p>
-                        <p className="text-[10px] text-slate-500">
-                          現在値 {mission.current}
-                        </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-300/40 bg-slate-200/10 text-sm"
+                              aria-hidden="true"
+                            >
+                              {MISSION_CHECK_VISUALS[mission.key]?.icon ?? "✅"}
+                            </span>
+                            <p className="truncate text-[10px] font-semibold text-slate-100">
+                              {mission.label} (
+                              {MISSION_CHECK_VISUALS[mission.key]?.helper ?? "ミッション指標"})
+                            </p>
+                          </div>
+                        </div>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                            mission.ok
+                              ? "border-emerald-300/55 bg-emerald-500/15 text-emerald-100"
+                              : "border-slate-600/65 bg-slate-800/70 text-slate-300"
+                          }`}
+                        >
+                          {mission.ok ? "達成" : "未達"}
+                        </span>
                       </div>
-                      <span
-                        className={`text-xs font-semibold ${
-                          mission.ok ? "text-emerald-200" : "text-slate-500"
-                        }`}
-                      >
-                        {mission.ok ? "達成" : "未達"}
-                      </span>
+                      <div className="mt-2 flex items-center justify-between text-[10px]">
+                        <span className="text-slate-400">目標 {mission.target}</span>
+                        <span className="text-slate-300">現在値 {mission.current}</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -905,30 +1115,70 @@ const SimResultsModal = ({
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
                   町のプロフィール
                 </p>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-                  <div className="flex items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-2">
-                    <span>地形</span>
-                    <span className="text-slate-200">
-                      {TERRAIN_LABELS[config.terrain]}
-                    </span>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-cyan-300/35 bg-[linear-gradient(135deg,rgba(8,47,73,0.55),rgba(12,74,110,0.18))] p-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-cyan-300/45 bg-cyan-400/15 text-base"
+                        aria-hidden="true"
+                      >
+                        🗺️
+                      </span>
+                      <div>
+                        <p className="text-[10px] text-slate-400">地形</p>
+                        <p className="text-xs font-semibold text-cyan-100">
+                          {TERRAIN_LABELS[config.terrain]}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-2">
-                    <span>災害</span>
-                    <span className="text-slate-200">
-                      {DISASTER_LABELS[summary.disaster]}
-                    </span>
+                  <div className="rounded-xl border border-rose-300/35 bg-[linear-gradient(135deg,rgba(76,5,25,0.55),rgba(127,29,29,0.16))] p-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-300/45 bg-rose-400/15 text-base"
+                        aria-hidden="true"
+                      >
+                        🌋
+                      </span>
+                      <div>
+                        <p className="text-[10px] text-slate-400">災害</p>
+                        <p className="text-xs font-semibold text-rose-100">
+                          {DISASTER_LABELS[summary.disaster]}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-2">
-                    <span>住民気分</span>
-                    <span className="text-slate-200">
-                      {EMOTION_TONE_LABELS[config.emotionTone]}
-                    </span>
+                  <div className="rounded-xl border border-amber-300/35 bg-[linear-gradient(135deg,rgba(120,53,15,0.55),rgba(146,64,14,0.16))] p-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-amber-300/45 bg-amber-400/15 text-base"
+                        aria-hidden="true"
+                      >
+                        😊
+                      </span>
+                      <div>
+                        <p className="text-[10px] text-slate-400">住民気分</p>
+                        <p className="text-xs font-semibold text-amber-100">
+                          {EMOTION_TONE_LABELS[config.emotionTone]}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-2">
-                    <span>年齢層</span>
-                    <span className="text-slate-200">
-                      {AGE_PROFILE_LABELS[config.ageProfile]}
-                    </span>
+                  <div className="rounded-xl border border-emerald-300/35 bg-[linear-gradient(135deg,rgba(6,78,59,0.55),rgba(6,95,70,0.16))] p-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-300/45 bg-emerald-400/15 text-base"
+                        aria-hidden="true"
+                      >
+                        👨‍👩‍👧‍👦
+                      </span>
+                      <div>
+                        <p className="text-[10px] text-slate-400">年齢層</p>
+                        <p className="text-xs font-semibold text-emerald-100">
+                          {AGE_PROFILE_LABELS[config.ageProfile]}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -956,7 +1206,7 @@ const SimResultsModal = ({
             />
             <MetricCard
               compact
-              label="公式到達"
+              label="行政情報の到達"
               value={summary.metrics.officialReach}
               peak={summary.peaks.officialReach}
               history={history.officialReach}
@@ -964,7 +1214,7 @@ const SimResultsModal = ({
             />
             <MetricCard
               compact
-              label="要支援到達"
+              label="要支援者への到達"
               value={summary.metrics.vulnerableReach}
               peak={summary.peaks.vulnerableReach}
               history={history.vulnerableReach}
@@ -980,7 +1230,7 @@ const SimResultsModal = ({
             />
             <MetricCard
               compact
-              label="公式信頼"
+              label="行政情報の信頼"
               value={summary.metrics.trustIndex}
               peak={summary.peaks.trustIndex}
               history={history.trustIndex}
@@ -1011,7 +1261,7 @@ const SimResultsModal = ({
               スコアの読み方
             </p>
             <p className="mt-2 text-sm text-slate-200">
-              公式情報と支援が届き、噂と混乱が抑えられるほどスコアが高くなります。
+              行政のお知らせと支援が届き、うわさと混乱が抑えられるほどスコアが高くなります。
             </p>
             <div className="mt-3 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
               {breakdown.map((part) => (
@@ -1036,34 +1286,86 @@ const SimResultsModal = ({
           <div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="grid gap-3">
               <RatioBar
-                label="警報認知"
+                label="警報の伝わり方"
                 segments={[
-                  { label: "公式", value: alertStatus.OFFICIAL, color: "bg-emerald-400" },
-                  { label: "噂", value: alertStatus.RUMOR, color: "bg-amber-400" },
-                  { label: "未到達", value: alertStatus.NONE, color: "bg-slate-600" },
+                  {
+                    label: "行政のお知らせで把握",
+                    value: alertStatus.OFFICIAL,
+                    color: "bg-emerald-400",
+                  },
+                  {
+                    label: "うわさで把握",
+                    value: alertStatus.RUMOR,
+                    color: "bg-amber-400",
+                  },
+                  {
+                    label: "まだ把握できていない",
+                    value: alertStatus.NONE,
+                    color: "bg-slate-600",
+                  },
                 ]}
               />
               <RatioBar
-                label="避難状態"
+                label="住民の行動状態"
                 segments={[
                   { label: "避難中", value: evacStatus.EVACUATING, color: "bg-sky-400" },
-                  { label: "避難所", value: evacStatus.SHELTERED, color: "bg-emerald-400" },
-                  { label: "支援中", value: evacStatus.HELPING, color: "bg-indigo-400" },
-                  { label: "待機", value: evacStatus.STAY, color: "bg-slate-600" },
+                  {
+                    label: "避難所に到着",
+                    value: evacStatus.SHELTERED,
+                    color: "bg-emerald-400",
+                  },
+                  {
+                    label: "支援活動中",
+                    value: evacStatus.HELPING,
+                    color: "bg-indigo-400",
+                  },
+                  { label: "その場待機", value: evacStatus.STAY, color: "bg-slate-600" },
                 ]}
               />
             </div>
             <div className="rounded-2xl border border-slate-800/70 bg-slate-950/60 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                イベント集計
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                  イベントログ
+                </p>
+                <span className="rounded-full border border-slate-700/80 bg-slate-900/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-300">
+                  Total {totalEventsRaw}
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                起きた出来事をアイコン付きで表示しています。
               </p>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400">
-                {Object.entries(summary.eventCounts).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span>{EVENT_LABELS[key] ?? key}</span>
-                    <span className="text-slate-300">{value}</span>
-                  </div>
-                ))}
+              <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-slate-800/80 text-[11px] text-slate-400">
+                {eventEntries.map(([key, value]) => {
+                  const visual = EVENT_VISUALS[key] ?? {
+                    icon: "🧩",
+                    detail: "分類外イベント",
+                    cardTone: "border-slate-500/40 bg-slate-700/20",
+                    meterTone: "bg-slate-400",
+                  };
+                  const ratio = Math.round((value / totalEvents) * 100);
+                  return (
+                    <div
+                      key={key}
+                      className="bg-slate-950/90 p-2 transition-colors hover:bg-slate-900/85"
+                      title={`${EVENT_LABELS[key] ?? key}: ${value}件 (${ratio}%) / ${visual.detail}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm leading-none" aria-hidden="true">
+                          {visual.icon}
+                        </span>
+                        <p className="ml-auto text-sm font-semibold text-slate-100">{value}</p>
+                      </div>
+                      <p className="mt-1 truncate text-[10px] font-semibold text-slate-200">
+                        {EVENT_LABELS[key] ?? key}
+                      </p>
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-800">
+                        <div className={`h-full rounded-full ${visual.meterTone}`} style={{ width: `${ratio}%` }} />
+                      </div>
+                      <p className="mt-1 text-[9px] text-slate-500">{ratio}%</p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1200,7 +1502,7 @@ const SimResultsModal = ({
                       {vectorMetricsAvailable ? (
                         <p className="mt-2 text-[10px] text-slate-500">
                           噂サンプル {rumorOverlap?.rumorSamples ?? 0}件 / 近傍解決{" "}
-                          {rumorOverlap?.neighborSamples ?? 0}件 / 公式近似{" "}
+                          {rumorOverlap?.neighborSamples ?? 0}件 / 行政情報近似{" "}
                           {rumorOverlap?.officialLike ?? 0}件
                         </p>
                       ) : (
