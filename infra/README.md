@@ -87,12 +87,12 @@ terraform apply \
   -var="enable_budget_controls=true" \
   -var="billing_account_id=YOUR_BILLING_ACCOUNT_ID" \
   -var="budget_alert_email=YOUR_EMAIL" \
-  -var="budget_amount=50000"
+  -var="budget_amount=80000"
 ```
 
 設定される内容:
 
-- Cloud Billing Budget（月次 50,000 JPY）
+- Cloud Billing Budget（月次 80,000 JPY）
 - 予算閾値メール通知（Monitoring Notification Channel）
 - Pub/Sub 通知
 - 通知を受けて Cloud Run 公開停止する Cloud Functions Gen2

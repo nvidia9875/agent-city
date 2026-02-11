@@ -58,7 +58,7 @@ variable "budget_alert_email" {
 variable "budget_amount" {
   type        = number
   description = "Monthly budget amount"
-  default     = 50000
+  default     = 80000
 }
 
 variable "budget_currency_code" {
