@@ -46,15 +46,6 @@ Terraform 出力値を GitHub Repository Secrets に設定します。
 - `CLOUD_RUN_WS_SERVICE` = `agenttown-ws`
 - `CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT` = `terraform output -raw service_account_email`
 
-必要に応じて AI 関連の Variables も設定できます。
-
-- `NEXT_PUBLIC_AI_ENABLED`
-- `NEXT_PUBLIC_SIM_LOG_LEVEL`
-- `VERTEX_AI_MODEL_DECISION`
-- `VERTEX_AI_MODEL_REASONING`
-- `VERTEX_AI_LOCATION`
-- `AI_ENABLED`
-
 ## 3.5 GitHub 設定を自動投入する
 
 `gh` CLI が使える場合は、Terraform 出力値を直接 GitHub へ反映できます。
@@ -70,11 +61,22 @@ gh auth login
 ./scripts/setup-github-actions-cloud-run.sh --repo YOUR_GITHUB_OWNER/YOUR_GITHUB_REPO --dry-run
 ```
 
-## 4. デプロイ
+## 4. Secret Manager に `.env` を同期
+
+Cloud Run 実行時の環境変数は Secret Manager から注入します。
+リポジトリルートで以下を実行してください。
+
+```bash
+./scripts/gcp/sync-env-to-secret-manager.sh --project YOUR_PROJECT_ID --env-file .env
+```
+
+このスクリプトは `.env` の全 `KEY=VALUE` を同名 Secret として作成/更新し、`.env` に無いキーは `scripts/gcp/cloud-run-defaults.env` から補完します。
+
+## 5. デプロイ
 
 `main` ブランチに push するか、GitHub Actions の `Deploy to Cloud Run` を `workflow_dispatch` で実行してください。
 
-## 5. 予算アラート + 自動公開停止（任意）
+## 6. 予算アラート + 自動公開停止（任意）
 
 月次予算を超えたときにメール通知し、Cloud Run の公開アクセスを自動停止できます。
 

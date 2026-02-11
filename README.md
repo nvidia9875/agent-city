@@ -112,51 +112,71 @@ terraform apply \\
 ## Cloud Run デプロイ
 
 Cloud Run では Web アプリと WebSocket サーバーを別サービスで動かします。
-`NEXT_PUBLIC_*` はビルド時に埋め込まれるため、Web 側ビルド時に `NEXT_PUBLIC_WS_URL` を指定してください。
+実行時の環境変数は Secret Manager 経由で注入します。
+`NEXT_PUBLIC_*` はビルド時に埋め込まれるため、Secret Manager から読み出して Web 側ビルド時に渡します。
+
+### 0) `.env` を Secret Manager に同期
+
+```bash
+./scripts/gcp/sync-env-to-secret-manager.sh --project YOUR_PROJECT_ID --env-file .env
+```
+
+このコマンドは `.env` の各キーを同名 Secret として登録し、新しい version を追加します。
+`.env` に無いキーは `scripts/gcp/cloud-run-defaults.env` から補完されます。
+Cloud Run に渡す `--set-secrets` の文字列は次で生成できます。
+
+```bash
+./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys
+```
 
 ### 1) WebSocket サーバーをデプロイ
 
-1. イメージをビルドしてレジストリへ push します。
-   ```bash
-   docker build -f Dockerfile.ws -t REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest .
-   docker push REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest
-   ```
-2. Cloud Run にデプロイします。
-   ```bash
-  gcloud run deploy agenttown-ws \\
-    --image REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest \\
-    --region us-central1 \\
-    --allow-unauthenticated \\
-    --set-env-vars GCP_PROJECT_ID=your-gcp-project,GCP_REGION=us-central1,VERTEX_AI_LOCATION=global,VERTEX_AI_MODEL_DECISION=gemini-3-flash-preview,VERTEX_AI_MODEL_REASONING=gemini-3-pro-preview
-   ```
-3. 出力された URL を控え、`wss://` に置き換えます（例: `https://...` → `wss://...`）。
+```bash
+WS_IMAGE=REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest
+SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys)"
+
+docker build -f Dockerfile.ws -t "${WS_IMAGE}" .
+docker push "${WS_IMAGE}"
+
+gcloud run deploy agenttown-ws \
+  --image "${WS_IMAGE}" \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-secrets "${SECRET_MAPPINGS}"
+```
+
+デプロイ後に URL を `wss://` に置き換えて控えてください（例: `https://...` → `wss://...`）。
 
 ### 2) Web アプリをデプロイ
 
-1. Web アプリのビルド時に `NEXT_PUBLIC_WS_URL` を渡します。
-   ```bash
-   docker build \\
-     --build-arg NEXT_PUBLIC_AI_ENABLED=true \\
-     --build-arg NEXT_PUBLIC_WS_URL=wss://YOUR-WS-URL \\
-     -t REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest .
-   docker push REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest
-   ```
-2. Cloud Run にデプロイします。
-   ```bash
-  gcloud run deploy agenttown-web \\
-    --image REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest \\
-    --region us-central1 \\
-    --allow-unauthenticated \\
-    --set-env-vars GCP_PROJECT_ID=your-gcp-project,GCP_REGION=us-central1,VERTEX_AI_LOCATION=global,VERTEX_AI_MODEL_DECISION=gemini-3-flash-preview,VERTEX_AI_MODEL_REASONING=gemini-3-pro-preview
-   ```
+```bash
+WEB_IMAGE=REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest
+SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys)"
+NEXT_PUBLIC_AI_ENABLED="$(gcloud secrets versions access latest --secret NEXT_PUBLIC_AI_ENABLED)"
+NEXT_PUBLIC_SIM_LOG_LEVEL="$(gcloud secrets versions access latest --secret NEXT_PUBLIC_SIM_LOG_LEVEL)"
+
+docker build \
+  --build-arg NEXT_PUBLIC_AI_ENABLED="${NEXT_PUBLIC_AI_ENABLED}" \
+  --build-arg NEXT_PUBLIC_SIM_LOG_LEVEL="${NEXT_PUBLIC_SIM_LOG_LEVEL}" \
+  --build-arg NEXT_PUBLIC_WS_URL=wss://YOUR-WS-URL \
+  -t "${WEB_IMAGE}" .
+docker push "${WEB_IMAGE}"
+
+gcloud run deploy agenttown-web \
+  --image "${WEB_IMAGE}" \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-secrets "${SECRET_MAPPINGS}"
+```
 
 ### Cloud Build でまとめて実行
 
-`cloudbuild.yaml` に Web/WS のビルドとデプロイをまとめています。WebSocket の URL を置き換えて実行してください。
+`cloudbuild.yaml` は Secret Manager 前提です。
+`NEXT_PUBLIC_AI_ENABLED` / `NEXT_PUBLIC_SIM_LOG_LEVEL` / `NEXT_PUBLIC_WS_URL` を Secret から読み出してビルドし、Cloud Run へは `scripts/gcp/cloud-run-env.keys` の全キーを `--set-secrets` で注入します。
 
 ```bash
 gcloud builds submit \\
-  --substitutions _REGION=us-central1,_REPO=REPO,_WEB_SERVICE=agenttown-web,_WS_SERVICE=agenttown-ws,_NEXT_PUBLIC_WS_URL=wss://YOUR-WS-URL
+  --substitutions _REGION=us-central1,_WEB_SERVICE=agenttown-web,_WS_SERVICE=agenttown-ws
 ```
 
 ### GitHub Actions で自動デプロイ
@@ -174,12 +194,11 @@ gcloud builds submit \\
    - `CLOUD_RUN_WEB_SERVICE`（default: `agenttown-web`）
    - `CLOUD_RUN_WS_SERVICE`（default: `agenttown-ws`）
    - `CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT`（Cloud Run 実行時の SA。Terraform の `service_account_email` 推奨）
-   - `NEXT_PUBLIC_AI_ENABLED`（default: `true`）
-   - `NEXT_PUBLIC_SIM_LOG_LEVEL`（default: `info`）
-   - `VERTEX_AI_MODEL_DECISION`（default: `gemini-3-flash-preview`）
-   - `VERTEX_AI_MODEL_REASONING`（default: `gemini-3-pro-preview`）
-   - `VERTEX_AI_LOCATION`（default: `global` when using Gemini 3）
-   - `AI_ENABLED`（default: `true`）
+4. `.env` の内容を Secret Manager に同期します（ローカルから1回実行）。
+
+```bash
+./scripts/gcp/sync-env-to-secret-manager.sh --project your-gcp-project --env-file .env
+```
 
 Terraform 適用後に `gh` で一括設定する場合:
 

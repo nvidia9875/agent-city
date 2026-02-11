@@ -16,12 +16,6 @@ env:
   WEB_SERVICE: ${{ vars.CLOUD_RUN_WEB_SERVICE || 'agenttown-web' }}
   WS_SERVICE: ${{ vars.CLOUD_RUN_WS_SERVICE || 'agenttown-ws' }}
   CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT: ${{ vars.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT || '' }}
-  NEXT_PUBLIC_AI_ENABLED: ${{ vars.NEXT_PUBLIC_AI_ENABLED || 'true' }}
-  NEXT_PUBLIC_SIM_LOG_LEVEL: ${{ vars.NEXT_PUBLIC_SIM_LOG_LEVEL || 'info' }}
-  VERTEX_AI_MODEL_DECISION: ${{ vars.VERTEX_AI_MODEL_DECISION || 'gemini-3-flash-preview' }}
-  VERTEX_AI_MODEL_REASONING: ${{ vars.VERTEX_AI_MODEL_REASONING || 'gemini-3-pro-preview' }}
-  VERTEX_AI_LOCATION: ${{ vars.VERTEX_AI_LOCATION || 'global' }}
-  AI_ENABLED: ${{ vars.AI_ENABLED || 'true' }}
 
 jobs:
   deploy:
@@ -65,6 +59,26 @@ jobs:
             exit 1
           fi
 
+      - name: Build Cloud Run secret mappings
+        run: |
+          set -euo pipefail
+          SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys)"
+          echo "CLOUD_RUN_SECRET_MAPPINGS=${SECRET_MAPPINGS}" >> "${GITHUB_ENV}"
+
+      - name: Load build-time public env from Secret Manager
+        run: |
+          set -euo pipefail
+          NEXT_PUBLIC_AI_ENABLED="$(gcloud secrets versions access latest --secret NEXT_PUBLIC_AI_ENABLED)"
+          NEXT_PUBLIC_SIM_LOG_LEVEL="$(gcloud secrets versions access latest --secret NEXT_PUBLIC_SIM_LOG_LEVEL)"
+          {
+            echo "NEXT_PUBLIC_AI_ENABLED<<EOF"
+            echo "${NEXT_PUBLIC_AI_ENABLED}"
+            echo "EOF"
+            echo "NEXT_PUBLIC_SIM_LOG_LEVEL<<EOF"
+            echo "${NEXT_PUBLIC_SIM_LOG_LEVEL}"
+            echo "EOF"
+          } >> "${GITHUB_ENV}"
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${REGION}-docker.pkg.dev -q
 
@@ -87,7 +101,8 @@ jobs:
             --region "${REGION}" \
             --allow-unauthenticated \
             "${SA_ARGS[@]}" \
-            --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${VERTEX_AI_MODEL_REASONING},AI_ENABLED=${AI_ENABLED}"
+            --clear-env-vars \
+            --set-secrets "${CLOUD_RUN_SECRET_MAPPINGS}"
 
       - name: Resolve WebSocket URL
         id: ws_url
@@ -119,4 +134,5 @@ jobs:
             --region "${REGION}" \
             --allow-unauthenticated \
             "${SA_ARGS[@]}" \
-            --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},VERTEX_AI_LOCATION=${VERTEX_AI_LOCATION},VERTEX_AI_MODEL_DECISION=${VERTEX_AI_MODEL_DECISION},VERTEX_AI_MODEL_REASONING=${VERTEX_AI_MODEL_REASONING},AI_ENABLED=${AI_ENABLED}"
+            --clear-env-vars \
+            --set-secrets "${CLOUD_RUN_SECRET_MAPPINGS}"

@@ -16,6 +16,7 @@ locals {
   github_deployer_project_roles = toset([
     "roles/artifactregistry.writer",
     "roles/run.admin",
+    "roles/secretmanager.secretAccessor",
   ])
 }
 
@@ -51,6 +52,11 @@ resource "google_project_service" "iamcredentials" {
 
 resource "google_project_service" "sts" {
   service            = "sts.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "secretmanager" {
+  service            = "secretmanager.googleapis.com"
   disable_on_destroy = false
 }
 
@@ -118,12 +124,38 @@ resource "google_project_iam_member" "cloudsql_client" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+resource "google_project_iam_member" "app_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.app.email}"
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 resource "google_project_iam_member" "github_deployer_project_roles" {
   for_each = local.github_deployer_project_roles
 
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.github_deployer.email}"
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_project_iam_member" "cloudbuild_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${data.google_project.current.number}@cloudbuild.gserviceaccount.com"
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_project_iam_member" "cloudbuild_compute_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+  depends_on = [google_project_service.secretmanager]
 }
 
 resource "google_service_account_iam_member" "github_deployer_act_as_runtime_sa" {
