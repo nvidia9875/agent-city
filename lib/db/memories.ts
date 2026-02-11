@@ -64,8 +64,19 @@ const normalizeMemory = (row: {
   createdAt: row.createdAt,
 });
 
-export const getRecentMemories = async (limit: number): Promise<MemoryRecord[]> => {
+export const getRecentMemories = async (
+  limit: number,
+  simulationId?: string
+): Promise<MemoryRecord[]> => {
   if (!isDbConfigured()) return [];
+  const params: unknown[] = [];
+  const whereClause = simulationId
+    ? "WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.simulation_id')) = ?"
+    : "";
+  if (simulationId) {
+    params.push(simulationId);
+  }
+  params.push(limit);
   const rows = await query<{
     id: string;
     agentId: string;
@@ -77,18 +88,28 @@ export const getRecentMemories = async (limit: number): Promise<MemoryRecord[]> 
   }>(
     `SELECT id, agent_id AS agentId, content, source_type AS sourceType, event_id AS eventId, metadata, created_at AS createdAt
      FROM agent_memories
+     ${whereClause}
      ORDER BY created_at DESC
      LIMIT ?`,
-    [limit]
+    params
   );
   return rows.map(normalizeMemory);
 };
 
 export const getRecentMemoriesByAgent = async (
   agentId: string,
-  limit: number
+  limit: number,
+  simulationId?: string
 ): Promise<MemoryRecord[]> => {
   if (!isDbConfigured()) return [];
+  const params: unknown[] = [agentId];
+  const simulationClause = simulationId
+    ? "AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.simulation_id')) = ?"
+    : "";
+  if (simulationId) {
+    params.push(simulationId);
+  }
+  params.push(limit);
   const rows = await query<{
     id: string;
     agentId: string;
@@ -101,16 +122,27 @@ export const getRecentMemoriesByAgent = async (
     `SELECT id, agent_id AS agentId, content, source_type AS sourceType, event_id AS eventId, metadata, created_at AS createdAt
      FROM agent_memories
      WHERE agent_id = ?
+     ${simulationClause}
      ORDER BY created_at DESC
      LIMIT ?`,
-    [agentId, limit]
+    params
   );
   return rows.map(normalizeMemory);
 };
 
-export const getMemoriesByIds = async (ids: string[]): Promise<MemoryRecord[]> => {
+export const getMemoriesByIds = async (
+  ids: string[],
+  simulationId?: string
+): Promise<MemoryRecord[]> => {
   if (!isDbConfigured() || ids.length === 0) return [];
   const placeholders = ids.map(() => "?").join(", ");
+  const params: unknown[] = [...ids];
+  const simulationClause = simulationId
+    ? "AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.simulation_id')) = ?"
+    : "";
+  if (simulationId) {
+    params.push(simulationId);
+  }
   const rows = await query<{
     id: string;
     agentId: string;
@@ -122,8 +154,9 @@ export const getMemoriesByIds = async (ids: string[]): Promise<MemoryRecord[]> =
   }>(
     `SELECT id, agent_id AS agentId, content, source_type AS sourceType, event_id AS eventId, metadata, created_at AS createdAt
      FROM agent_memories
-     WHERE id IN (${placeholders})`,
-    ids
+     WHERE id IN (${placeholders})
+     ${simulationClause}`,
+    params
   );
   return rows.map(normalizeMemory);
 };

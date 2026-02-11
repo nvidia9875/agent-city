@@ -8,12 +8,14 @@ import type {
   World,
   SimEndReason,
   SimEndSummary,
+  InterventionKind,
 } from "@/types/sim";
 import type { WsClientMsg, WsServerMsg } from "@/types/ws";
 import { createMockWorld } from "@/mocks/mockWorld";
 import { clamp } from "@/utils/easing";
 import { toIndex } from "@/utils/grid";
 import { buildAgentBubble } from "@/utils/bubble";
+import { buildTalkExchange, pickTalkTargetAgent } from "@/utils/talk";
 
 const randomPick = <T,>(items: T[]) =>
   items[Math.floor(Math.random() * items.length)];
@@ -38,7 +40,13 @@ const officialAccessibility = (agent: Agent, coverage: number) => {
 
 const BASE_EVENT_MESSAGES: Record<TimelineEventType, string[]> = {
   MOVE: ["避難ルートを確認中。", "安全な道を探して移動。"],
-  TALK: ["近くの人と情報交換。", "状況を共有している。"],
+  TALK: [
+    "いま安全なルートを確認しよう。",
+    "避難所の混雑状況を共有したい。",
+    "この周辺の危険箇所を確認しよう。",
+    "公式情報の更新を見た？",
+    "要支援者の状況を優先して見よう。",
+  ],
   ACTIVITY: ["日常の用事を進めている。", "今の活動を続ける。"],
   RUMOR: [
     "橋が落ちたという噂が広がる。",
@@ -199,6 +207,26 @@ export const connectMockWs = (
     );
     return candidates;
   };
+
+  const getNearbyAgentEntities = (agent: Agent) => {
+    if (!world) return [] as Agent[];
+    return Object.values(world.agents)
+      .filter((target) => target.id !== agent.id)
+      .filter((target) => manhattan(agent.pos, target.pos) <= 4)
+      .slice(0, 6);
+  };
+
+  const pickTalkTarget = (input: {
+    speaker: Agent;
+    preferredId?: string;
+    preferAiPartner?: boolean;
+  }) =>
+    pickTalkTargetAgent({
+      speaker: input.speaker,
+      nearbyAgents: getNearbyAgentEntities(input.speaker),
+      preferredId: input.preferredId,
+      preferAiPartner: input.preferAiPartner,
+    });
 
   const emit = (msg: WsServerMsg) => onMessage(msg);
 
@@ -545,7 +573,7 @@ export const connectMockWs = (
     if (Math.random() > 0.68) {
       const agents = Object.values(world.agents);
       if (agents.length === 0) return;
-      const actor = agents[Math.floor(Math.random() * agents.length)];
+      let actor = agents[Math.floor(Math.random() * agents.length)];
       const roll = Math.random();
       const officialAllowed = world.tick >= officialDelayTicks;
       let type: TimelineEventType =
@@ -570,17 +598,38 @@ export const connectMockWs = (
       if (Math.random() < misinfoFactor * 0.35 + ambiguityFactor * 0.2) {
         type = "RUMOR";
       }
+      if (type === "TALK") {
+        const aiActors = agents.filter((candidate) => candidate.isAI);
+        if (aiActors.length > 0 && (!actor.isAI || Math.random() < 0.7)) {
+          actor = randomPick(aiActors);
+        }
+      }
+      const talkTarget =
+        type === "TALK"
+          ? pickTalkTarget({
+              speaker: actor,
+              preferAiPartner: Boolean(actor.isAI),
+            })
+          : null;
       const baseMessage =
         type === "RUMOR" && Math.random() < misinfoFactor * 0.55
           ? randomPick(MISINFO_EVENT_MESSAGES)
           : pickEventMessage(type);
+      const talkExchange =
+        type === "TALK"
+          ? buildTalkExchange({
+              speaker: actor,
+              target: talkTarget,
+              seedMessage: baseMessage,
+            })
+          : undefined;
       const event: TimelineEvent = {
         id: randomId("ev"),
         tick: world.tick,
         type,
-        actors: [actor.id],
+        actors: talkTarget ? [actor.id, talkTarget.id] : [actor.id],
         at: actor.pos,
-        message: baseMessage,
+        message: talkExchange?.timelineMessage ?? baseMessage,
       };
       emit({ type: "EVENT", event });
       eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
@@ -647,9 +696,18 @@ export const connectMockWs = (
           bubble: buildAgentBubble(actor, {
             tick: world.tick,
             kind: "TALK",
-            message: event.message,
+            message: talkExchange?.speakerLine ?? event.message,
           }),
         });
+        if (talkTarget && talkExchange?.targetLine) {
+          mergeAgentPatch(talkTarget.id, {
+            bubble: buildAgentBubble(talkTarget, {
+              tick: world.tick,
+              kind: "TALK",
+              message: talkExchange.targetLine,
+            }),
+          });
+        }
       }
     }
 
@@ -807,14 +865,17 @@ export const connectMockWs = (
         if (!world || simEnded) return;
         const activeWorld = world;
         const interventionTick = activeWorld.tick;
-        const kindLabel: Record<string, string> = {
+        const kindLabel: Record<InterventionKind, string> = {
           official_alert: "公式警報一斉配信",
           open_shelter: "避難所拡張",
           fact_check: "ファクトチェック",
           support_vulnerable: "要支援者支援",
-          broadcast: "公式アナウンス",
-          counter_rumor: "噂訂正",
-          traffic_control: "交通規制",
+          multilingual_broadcast: "多言語一斉アラート",
+          route_guidance: "避難ルート誘導",
+          rumor_monitoring: "SNSデマ監視",
+          volunteer_mobilization: "ボランティア招集",
+          operations_rebalance: "支援優先度リバランス",
+          triage_dispatch: "誤配分是正トリアージ",
         };
         const diffAgents: Record<string, Partial<Agent>> = {};
         const diffBuildings: Record<string, Partial<Building>> = {};
@@ -847,6 +908,9 @@ export const connectMockWs = (
           message: `${kindLabel[msg.payload.kind] ?? msg.payload.kind}: ${
             msg.payload.message ?? "対応を実行しました"
           }`,
+          meta: {
+            interventionKind: msg.payload.kind,
+          },
         };
         emit({ type: "EVENT", event });
         eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
@@ -940,6 +1004,66 @@ export const connectMockWs = (
               status: "OPEN",
               occupancy: nextOccupancy,
             });
+          });
+        }
+
+        if (msg.payload.kind === "triage_dispatch") {
+          const responderRoles: Agent["profile"]["role"][] = [
+            "volunteer",
+            "medical",
+            "staff",
+            "leader",
+          ];
+          Object.values(activeWorld.agents).forEach((agent) => {
+            const evacStatus = agent.evacStatus ?? "STAY";
+            const vulnerable = isVulnerable(agent);
+            const isResponder = responderRoles.includes(agent.profile.role);
+            const isNonVulnerableActive =
+              !vulnerable && ["EVACUATING", "HELPING"].includes(evacStatus);
+
+            if (isNonVulnerableActive) {
+              const retaskBase = isResponder ? 0.56 : 0.84;
+              const rumorBoost = agent.alertStatus === "RUMOR" ? 0.1 : 0;
+              const helperBoost = evacStatus === "HELPING" ? 0.06 : 0;
+              const retaskChance = clamp01(retaskBase + rumorBoost + helperBoost);
+              if (Math.random() <= retaskChance) {
+                const nextState = {
+                  ...agent.state,
+                  stress: clamp(agent.state.stress - (isResponder ? 6 : 9), 0, 100),
+                };
+                mergeAgentPatch(agent.id, {
+                  evacStatus: "STAY",
+                  alertStatus: "OFFICIAL",
+                  bubble: buildAgentBubble(agent, {
+                    tick: interventionTick,
+                    kind: "OFFICIAL",
+                    message: msg.payload.message ?? "不要出動を停止して待機へ切替",
+                  }),
+                  icon: "OFFICIAL",
+                  state: nextState,
+                });
+              }
+            }
+
+            if (agent.alertStatus === "RUMOR") {
+              const correctionBase = vulnerable ? 0.78 : 0.9;
+              if (Math.random() <= officialAcceptance(agent, correctionBase)) {
+                const nextState = {
+                  ...agent.state,
+                  stress: clamp(agent.state.stress - 9, 0, 100),
+                };
+                mergeAgentPatch(agent.id, {
+                  alertStatus: "OFFICIAL",
+                  bubble: buildAgentBubble(agent, {
+                    tick: interventionTick,
+                    kind: "OFFICIAL",
+                    message: msg.payload.message ?? "要請を再確認し誤情報を訂正",
+                  }),
+                  icon: vulnerable ? "HELP" : "OFFICIAL",
+                  state: nextState,
+                });
+              }
+            }
           });
         }
 

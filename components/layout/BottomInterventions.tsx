@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { DisasterType } from "@/types/sim";
+import type {
+  DisasterType,
+  InterventionComboKey,
+  InterventionKind,
+  TimelineEvent,
+} from "@/types/sim";
 
 type Intervention = {
-  kind: string;
+  kind: InterventionKind;
   label: string;
   description: string;
   message: string;
@@ -16,6 +21,7 @@ type BottomInterventionsProps = {
   onIntervention: (intervention: Intervention) => void;
   disabled?: boolean;
   disaster?: DisasterType;
+  timeline?: TimelineEvent[];
   points?: number;
   maxPoints?: number;
   currentTick?: number;
@@ -43,6 +49,132 @@ const INTERVENTION_BALANCE: Record<
   route_guidance: { cost: 20, cooldown: 5 },
   rumor_monitoring: { cost: 16, cooldown: 5 },
   volunteer_mobilization: { cost: 30, cooldown: 11 },
+  operations_rebalance: { cost: 26, cooldown: 8 },
+  triage_dispatch: { cost: 34, cooldown: 13 },
+};
+
+const INTERVENTION_ICON_TONE: Record<InterventionKind, string> = {
+  official_alert:
+    "border-rose-400/50 bg-rose-400/15 text-rose-200 shadow-[0_0_18px_rgba(251,113,133,0.25)]",
+  open_shelter:
+    "border-emerald-400/50 bg-emerald-400/15 text-emerald-200 shadow-[0_0_18px_rgba(52,211,153,0.25)]",
+  fact_check:
+    "border-cyan-400/50 bg-cyan-400/15 text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.25)]",
+  support_vulnerable:
+    "border-indigo-400/50 bg-indigo-400/15 text-indigo-200 shadow-[0_0_18px_rgba(129,140,248,0.25)]",
+  multilingual_broadcast:
+    "border-sky-400/50 bg-sky-400/15 text-sky-200 shadow-[0_0_18px_rgba(56,189,248,0.25)]",
+  route_guidance:
+    "border-amber-400/50 bg-amber-400/15 text-amber-200 shadow-[0_0_18px_rgba(251,191,36,0.25)]",
+  rumor_monitoring:
+    "border-fuchsia-400/50 bg-fuchsia-400/15 text-fuchsia-200 shadow-[0_0_18px_rgba(232,121,249,0.25)]",
+  volunteer_mobilization:
+    "border-lime-400/50 bg-lime-400/15 text-lime-200 shadow-[0_0_18px_rgba(163,230,53,0.25)]",
+  operations_rebalance:
+    "border-violet-400/50 bg-violet-400/15 text-violet-200 shadow-[0_0_18px_rgba(167,139,250,0.25)]",
+  triage_dispatch:
+    "border-orange-400/50 bg-orange-400/15 text-orange-200 shadow-[0_0_18px_rgba(251,146,60,0.25)]",
+};
+
+const INTERVENTION_COMBO_WINDOW_TICKS = 8;
+
+const INTERVENTION_COMBOS: Array<{
+  key: InterventionComboKey;
+  label: string;
+  sequence: [InterventionKind, InterventionKind];
+}> = [
+  {
+    key: "TRUTH_CASCADE",
+    label: "Truth Cascade",
+    sequence: ["rumor_monitoring", "official_alert"],
+  },
+  {
+    key: "EVAC_EXPRESS",
+    label: "Evac Express",
+    sequence: ["multilingual_broadcast", "route_guidance"],
+  },
+  {
+    key: "CARE_CHAIN",
+    label: "Care Chain",
+    sequence: ["support_vulnerable", "operations_rebalance"],
+  },
+];
+
+const InterventionIcon = ({ kind }: { kind: InterventionKind }) => {
+  const tone = INTERVENTION_ICON_TONE[kind];
+  return (
+    <span
+      className={`inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl border ${tone}`}
+      aria-hidden="true"
+    >
+      {kind === "official_alert" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M12 4l8 14H4z" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M12 9v4" strokeLinecap="round" />
+          <circle cx="12" cy="16" r="1" fill="currentColor" stroke="none" />
+        </svg>
+      ) : null}
+      {kind === "open_shelter" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M4 11l8-6 8 6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M6 10v9h12v-9" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M10 19v-4h4v4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+      {kind === "fact_check" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M8.5 12.5l2.2 2.2L15.5 10" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+      {kind === "support_vulnerable" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="10" r="4" />
+          <path d="M4 20c1.2-2.8 4-4.5 8-4.5s6.8 1.7 8 4.5" strokeLinecap="round" />
+          <path d="M18 7v4M16 9h4" strokeLinecap="round" />
+        </svg>
+      ) : null}
+      {kind === "multilingual_broadcast" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18M12 3c2.8 2.8 2.8 15.2 0 18M12 3c-2.8 2.8-2.8 15.2 0 18" strokeLinecap="round" />
+        </svg>
+      ) : null}
+      {kind === "route_guidance" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M12 21s6-5 6-10a6 6 0 10-12 0c0 5 6 10 6 10z" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="12" cy="11" r="2" />
+        </svg>
+      ) : null}
+      {kind === "rumor_monitoring" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M3 12s3-5 9-5 9 5 9 5-3 5-9 5-9-5-9-5z" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="12" cy="12" r="2.5" />
+        </svg>
+      ) : null}
+      {kind === "volunteer_mobilization" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="8" cy="9" r="3" />
+          <circle cx="16" cy="9" r="3" />
+          <path d="M3 20c.7-2.4 2.8-4 5-4M21 20c-.7-2.4-2.8-4-5-4" strokeLinecap="round" />
+          <path d="M9 20c.8-2.6 2.4-4 3-4s2.2 1.4 3 4" strokeLinecap="round" />
+        </svg>
+      ) : null}
+      {kind === "operations_rebalance" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M12 4v15M7 8h10" strokeLinecap="round" />
+          <path d="M5 8l-2 4h4zM19 8l-2 4h4z" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M10 19h4" strokeLinecap="round" />
+        </svg>
+      ) : null}
+      {kind === "triage_dispatch" ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M6 5h12M6 19h12M8 5v14M16 5v14" strokeLinecap="round" />
+          <path d="M10 11h4M12 9v4" strokeLinecap="round" />
+        </svg>
+      ) : null}
+    </span>
+  );
 };
 
 const INTERVENTION_SETS: Record<DisasterType, Intervention[]> = {
@@ -95,6 +227,20 @@ const INTERVENTION_SETS: Record<DisasterType, Intervention[]> = {
       description: "SNS上の津波デマを監視・訂正します。",
       message: "デマを検知し訂正を開始。",
       ...INTERVENTION_BALANCE.rumor_monitoring,
+    },
+    {
+      kind: "operations_rebalance",
+      label: "支援優先度リバランス",
+      description: "要支援者向け導線を最優先に再編し、不要な出動を抑えます。",
+      message: "要支援者優先で現場運用を再配分。",
+      ...INTERVENTION_BALANCE.operations_rebalance,
+    },
+    {
+      kind: "triage_dispatch",
+      label: "誤配分是正トリアージ",
+      description: "不要出動を停止し、重複要請を整理して支援の誤配分を抑えます。",
+      message: "誤配分是正トリアージを開始。",
+      ...INTERVENTION_BALANCE.triage_dispatch,
     },
     {
       kind: "volunteer_mobilization",
@@ -155,6 +301,20 @@ const INTERVENTION_SETS: Record<DisasterType, Intervention[]> = {
       ...INTERVENTION_BALANCE.rumor_monitoring,
     },
     {
+      kind: "operations_rebalance",
+      label: "救助優先度リバランス",
+      description: "要支援者搬送を優先し、不要な移動と出動を抑制します。",
+      message: "救助運用を要支援者優先へ再編。",
+      ...INTERVENTION_BALANCE.operations_rebalance,
+    },
+    {
+      kind: "triage_dispatch",
+      label: "現場トリアージ指令",
+      description: "不要出動を止めて誤情報起点の要請を精査し、資源配分を正します。",
+      message: "現場トリアージ指令を発令。",
+      ...INTERVENTION_BALANCE.triage_dispatch,
+    },
+    {
       kind: "volunteer_mobilization",
       label: "地域救助隊招集",
       description: "救助ボランティアを追加動員します。",
@@ -211,6 +371,20 @@ const INTERVENTION_SETS: Record<DisasterType, Intervention[]> = {
       description: "堤防決壊の誤情報を監視・訂正します。",
       message: "決壊デマの訂正を開始。",
       ...INTERVENTION_BALANCE.rumor_monitoring,
+    },
+    {
+      kind: "operations_rebalance",
+      label: "浸水支援リバランス",
+      description: "要支援者搬送を優先し、現場の支援配分を再調整します。",
+      message: "浸水支援の優先度を再配分。",
+      ...INTERVENTION_BALANCE.operations_rebalance,
+    },
+    {
+      kind: "triage_dispatch",
+      label: "浸水対応トリアージ",
+      description: "不要な出動を抑制し、重複した救助導線を再編して誤配分を減らします。",
+      message: "浸水対応トリアージを開始。",
+      ...INTERVENTION_BALANCE.triage_dispatch,
     },
     {
       kind: "volunteer_mobilization",
@@ -271,6 +445,20 @@ const INTERVENTION_SETS: Record<DisasterType, Intervention[]> = {
       ...INTERVENTION_BALANCE.rumor_monitoring,
     },
     {
+      kind: "operations_rebalance",
+      label: "地下誘導リバランス",
+      description: "要支援者の地下搬送を優先し、誘導要員を再配分します。",
+      message: "地下誘導の運用を要支援者優先へ再編。",
+      ...INTERVENTION_BALANCE.operations_rebalance,
+    },
+    {
+      kind: "triage_dispatch",
+      label: "地下誘導トリアージ",
+      description: "不要な地下誘導を停止し、誤要請を整理して資源配分を最適化します。",
+      message: "地下誘導トリアージを開始。",
+      ...INTERVENTION_BALANCE.triage_dispatch,
+    },
+    {
       kind: "volunteer_mobilization",
       label: "地下誘導班招集",
       description: "地下誘導の人員を追加動員します。",
@@ -284,6 +472,7 @@ const BottomInterventions = ({
   onIntervention,
   disabled = false,
   disaster = "EARTHQUAKE",
+  timeline = [],
   points = 0,
   maxPoints,
   currentTick = 0,
@@ -332,6 +521,79 @@ const BottomInterventions = ({
       ? "from-amber-300 to-amber-400"
       : "from-emerald-300 to-emerald-400";
   const recoveryPercent = Math.max(0, Math.min(pointRecovery.progressPercent, 100));
+  const interventionEvents = timeline
+    .filter(
+      (event): event is TimelineEvent & { meta: { interventionKind: InterventionKind } } =>
+        event.type === "INTERVENTION" && Boolean(event.meta?.interventionKind)
+    )
+    .map((event) => ({
+      tick: event.tick,
+      kind: event.meta.interventionKind,
+    }));
+  const latestIntervention = interventionEvents[0];
+  const comboStatuses = INTERVENTION_COMBOS.map((combo) => {
+    const [starterKind, finisherKind] = combo.sequence;
+    const starter = interventions.find((item) => item.kind === starterKind);
+    const finisher = interventions.find((item) => item.kind === finisherKind);
+    const activeWindow =
+      latestIntervention?.kind === starterKind
+        ? currentTick - latestIntervention.tick
+        : undefined;
+    const armed =
+      typeof activeWindow === "number" &&
+      activeWindow >= 0 &&
+      activeWindow <= INTERVENTION_COMBO_WINDOW_TICKS;
+    const remainingTicks = armed
+      ? INTERVENTION_COMBO_WINDOW_TICKS - activeWindow
+      : undefined;
+    const finisherNextTick = finisher ? cooldowns[finisher.kind] ?? 0 : 0;
+    const finisherOnCooldown = finisherNextTick > currentTick;
+    const finisherPointShort = finisher ? points < finisher.cost : true;
+    const finisherBlocked =
+      disabled || finisherOnCooldown || finisherPointShort || interventionsRemaining <= 0;
+
+    const starterNextTick = starter ? cooldowns[starter.kind] ?? 0 : 0;
+    const starterReady =
+      Boolean(starter) &&
+      starterNextTick <= currentTick &&
+      points >= (starter?.cost ?? 0) &&
+      interventionsRemaining > 0 &&
+      !disabled;
+
+    return {
+      ...combo,
+      starter,
+      finisher,
+      starterReady,
+      armed,
+      remainingTicks,
+      finisherBlocked,
+    };
+  });
+  const activeComboStatuses = comboStatuses.filter((combo) => combo.armed);
+  const comboTargetByKind = new Map<
+    InterventionKind,
+    { mode: "finisher"; remainingTicks: number } | { mode: "starter" }
+  >();
+  activeComboStatuses.forEach((combo) => {
+    if (
+      !combo.finisher ||
+      typeof combo.remainingTicks !== "number" ||
+      combo.finisherBlocked
+    ) {
+      return;
+    }
+    comboTargetByKind.set(combo.finisher.kind, {
+      mode: "finisher",
+      remainingTicks: combo.remainingTicks,
+    });
+  });
+  if (activeComboStatuses.length === 0) {
+    comboStatuses.forEach((combo) => {
+      if (!combo.starter || !combo.starterReady) return;
+      comboTargetByKind.set(combo.starter.kind, { mode: "starter" });
+    });
+  }
 
   const updateScrollState = () => {
     const container = scrollRef.current;
@@ -453,35 +715,86 @@ const BottomInterventions = ({
             const pointsShort = points < intervention.cost;
             const noUsesRemaining = interventionsRemaining <= 0;
             const blocked = disabled || onCooldown || pointsShort || noUsesRemaining;
+            const comboTarget = comboTargetByKind.get(intervention.kind);
+            const comboMode = comboTarget?.mode;
+            const comboTargeted = Boolean(comboTarget);
+            const comboHintLabel =
+              comboMode === "finisher"
+                ? `COMBO完成 残り ${
+                    comboTarget?.mode === "finisher" ? comboTarget.remainingTicks : 0
+                  }秒`
+                : comboMode === "starter"
+                  ? "COMBO起点"
+                  : null;
+            const comboHighlightActive = Boolean(comboMode && !blocked);
+            const comboCardToneClass =
+              comboMode === "finisher" && !blocked
+                ? "border-rose-400/80 bg-rose-950/30 shadow-[0_0_0_1px_rgba(251,113,133,0.42),0_0_28px_rgba(251,113,133,0.38)]"
+                : comboMode === "starter" && !blocked
+                  ? "border-cyan-300/80 bg-cyan-950/25 shadow-[0_0_0_1px_rgba(34,211,238,0.38),0_0_24px_rgba(34,211,238,0.35)]"
+                  : "";
+            const comboHintToneClass =
+              comboMode === "finisher"
+                ? "border-rose-300/70 bg-rose-500/20 text-rose-50 shadow-[0_0_16px_rgba(251,113,133,0.35)]"
+                : comboMode === "starter"
+                  ? "border-cyan-300/70 bg-cyan-500/20 text-cyan-50 shadow-[0_0_16px_rgba(34,211,238,0.3)]"
+                  : "border-emerald-300/45 bg-emerald-500/12 text-emerald-100";
 
             return (
               <button
                 key={intervention.kind}
                 onClick={() => onIntervention(intervention)}
                 disabled={blocked}
-                className={`flex w-[224px] flex-none flex-col gap-3 rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4 text-left transition ${
-                  blocked
-                    ? "cursor-not-allowed opacity-40"
-                    : "hover:border-emerald-400/40"
+                className={`relative isolate flex w-[224px] flex-none flex-col gap-3 overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-900/40 p-4 text-left transition ${
+                  blocked ? "cursor-not-allowed opacity-40" : "hover:border-emerald-400/40"
+                } ${comboCardToneClass} ${
+                  comboMode === "finisher" && !blocked
+                    ? "combo-highlight combo-highlight-finisher"
+                    : comboMode === "starter" && !blocked
+                      ? "combo-highlight combo-highlight-starter"
+                      : ""
                 }`}
               >
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-100">
-                    {intervention.label}
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {intervention.description}
-                  </p>
+                {comboHighlightActive ? (
+                  <span
+                    aria-hidden="true"
+                    className={`combo-sweep ${
+                      comboMode === "finisher"
+                        ? "combo-sweep-finisher"
+                        : "combo-sweep-starter"
+                    }`}
+                  />
+                ) : null}
+                <div className="relative z-[1]">
+                  <div className="flex items-start gap-3">
+                    <InterventionIcon kind={intervention.kind} />
+                    <div className="min-w-0">
+                      <h3
+                        className={`text-sm font-semibold ${
+                          comboMode === "finisher" && !blocked
+                            ? "text-rose-50"
+                            : comboMode === "starter" && !blocked
+                              ? "text-cyan-50"
+                              : "text-slate-100"
+                        }`}
+                      >
+                        {intervention.label}
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {intervention.description}
+                      </p>
+                    </div>
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400">
                     <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-1">
                       コスト {intervention.cost}pt
                     </span>
                     <span className="rounded-full border border-slate-700/70 bg-slate-900/60 px-2 py-1">
-                      CD {intervention.cooldown}t
+                      待機時間 {intervention.cooldown}秒
                     </span>
                     {onCooldown ? (
                       <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-amber-200">
-                        残り {remaining}t
+                        再使用まで {remaining}秒
                       </span>
                     ) : null}
                     {pointsShort ? (
@@ -494,9 +807,16 @@ const BottomInterventions = ({
                         使用回数上限
                       </span>
                     ) : null}
+                    {comboTargeted ? (
+                      <span
+                        className={`rounded-full border px-2 py-1 ${comboHintToneClass}`}
+                      >
+                        {comboHintLabel}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
-                <span className="mt-auto text-xs text-emerald-300">
+                <span className="relative z-[1] mt-auto text-xs text-emerald-300">
                   {intervention.message}
                 </span>
               </button>

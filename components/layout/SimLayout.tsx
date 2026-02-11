@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CityCanvas from "@/components/three/CityCanvas";
 import SimConfigModal from "@/components/layout/SimConfigModal";
+import SimIntroModal from "@/components/layout/SimIntroModal";
 import SimStatusDock from "@/components/layout/SimStatusDock";
 import TopHud from "@/components/layout/TopHud";
 import LeftTimeline from "@/components/layout/LeftTimeline";
@@ -16,7 +17,7 @@ import { DEFAULT_INTERVENTION_POINTS, DEFAULT_SIM_CONFIG } from "@/utils/simConf
 
 const INTERVENTION_USE_LIMIT = 10;
 const POINT_RECOVERY_INTERVAL_TICKS = 5;
-const POINT_RECOVERY_AMOUNT = 8;
+const POINT_RECOVERY_AMOUNT = 10;
 
 type PointState = {
   value: number;
@@ -47,11 +48,13 @@ const SimLayout = () => {
   const sim = useSimStore((state) => state.sim);
   const metricsTick = useSimStore((state) => state.metricsTick);
   const metricsHistory = useSimStore((state) => state.metricsHistory);
+  const timeline = useSimStore((state) => state.timeline);
   const setSpeed = useSimStore((state) => state.setSpeed);
   const togglePause = useSimStore((state) => state.togglePause);
   const resetSim = useSimStore((state) => state.resetSim);
   const [config, setConfig] = useState<SimConfig>(DEFAULT_SIM_CONFIG);
   const [started, setStarted] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
   const [showConfig, setShowConfig] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [hideResults, setHideResults] = useState(false);
@@ -66,6 +69,7 @@ const SimLayout = () => {
   const interventionsRemainingRef = useRef(INTERVENTION_USE_LIMIT);
   const showResults = sim.ended && !hideResults;
   const hasBlockingOverlay = showConfirm || showResults || !started || showConfig;
+  const isGameActive = started && !sim.ended;
   const maxPoints = config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS;
   const currentTick = metricsTick ?? world?.tick ?? 0;
   const settledPointState = settlePointState(pointState, currentTick, maxPoints);
@@ -132,6 +136,31 @@ const SimLayout = () => {
     );
   };
 
+  useEffect(() => {
+    if (!isGameActive) return;
+
+    const guardState = { simGuard: true };
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const handlePopState = () => {
+      window.alert(
+        "シミュレーション中です。終了前にこのページから離れることはできません。"
+      );
+      window.history.pushState(guardState, "", window.location.href);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.history.pushState(guardState, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [isGameActive]);
+
   return (
     <div className="relative h-screen overflow-hidden bg-[radial-gradient(circle_at_top,_#1f2a44,_#0a0f18_55%,_#070a10)] pb-6 pt-5 text-slate-100">
       {sim.ended && sim.summary && showResults ? (
@@ -147,7 +176,12 @@ const SimLayout = () => {
           />
         </div>
       ) : null}
-      {!started || showConfig ? (
+      {!started && showIntro ? (
+        <div className="fancy-scroll absolute inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
+          <SimIntroModal onClose={() => setShowIntro(false)} />
+        </div>
+      ) : null}
+      {(!started && !showIntro) || showConfig ? (
         <div className="fancy-scroll absolute inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
           <SimConfigModal
             config={config}
@@ -263,6 +297,7 @@ const SimLayout = () => {
           <BottomInterventions
             disabled={sim.ended}
             disaster={config.disaster}
+            timeline={timeline}
             points={points}
             maxPoints={maxPoints}
             currentTick={currentTick}

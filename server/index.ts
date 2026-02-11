@@ -9,6 +9,8 @@ import type {
   Metrics,
   SimEndReason,
   SimEndSummary,
+  InterventionComboKey,
+  InterventionKind,
   TimelineEvent,
   TimelineEventType,
   SimConfig,
@@ -17,13 +19,27 @@ import type {
 import type { WsClientMsg, WsServerMsg } from "../types/ws";
 import { createMockWorld } from "../mocks/mockWorld";
 import { clamp } from "../utils/easing";
+import {
+  buildTalkExchange,
+  formatTalkTimelineMessage,
+  pickTalkTargetAgent,
+} from "../utils/talk";
 import { buildAgentBubble } from "../utils/bubble";
 import { toIndex } from "../utils/grid";
 import { ACTIVITY_GOALS, ACTIVITY_LABELS, formatActivityMessage } from "../utils/activity";
-import { generateAgentDecision } from "../lib/ai/decision";
+import {
+  generateAgentBubbleLine,
+  generateAgentDecision,
+  generateAgentTalkReply,
+  generateAgentTalkSpeakerLine,
+} from "../lib/ai/decision";
 import type { AgentDecision } from "../lib/ai/decision";
 import { generateAndStoreReasoning } from "../lib/ai/reasoning";
-import { recordAgentMemory, recordEventMemory } from "../lib/ai/memoryPipeline";
+import {
+  recordAgentMemory,
+  recordEventMemory,
+  setMemoryPipelineSimulationId,
+} from "../lib/ai/memoryPipeline";
 import { getRelevantMemories } from "../lib/ai/memoryRetrieval";
 import { generateVectorInsights, getVectorInsightsBootstrap } from "../lib/ai/vectorInsights";
 import { getAgentReasoning } from "../lib/db/agentReasoning";
@@ -184,7 +200,13 @@ const pickEventMessage = (type: TimelineEventType) => {
 
 const BASE_EVENT_MESSAGES: Record<TimelineEventType, string[]> = {
   MOVE: ["避難ルートを確認中。", "安全な道を探して移動。"],
-  TALK: ["近くの人と情報交換。", "状況を共有している。"],
+  TALK: [
+    "いま安全なルートを確認しよう。",
+    "避難所の混雑状況を共有したい。",
+    "この周辺の危険箇所を確認しよう。",
+    "公式情報の更新を見た？",
+    "要支援者の状況を優先して見よう。",
+  ],
   ACTIVITY: ["日常の用事を進めている。", "今の活動を続ける。"],
   RUMOR: [
     "橋が落ちたという噂が広がる。",
@@ -283,6 +305,7 @@ let factCheckSpeed = 60;
 let simEnded = false;
 let simStartedAt = 0;
 let simStartTick = 0;
+let currentSimulationId: string | undefined;
 let stableTicks = 0;
 let escalatedTicks = 0;
 let currentConfig: SimConfig | undefined;
@@ -298,6 +321,75 @@ const resetMetrics = (): Metrics => ({
   stabilityScore: 52,
 });
 let metrics: Metrics = resetMetrics();
+
+type InterventionHistoryItem = { kind: InterventionKind; tick: number };
+type InterventionCombo = {
+  key: InterventionComboKey;
+  sequence: [InterventionKind, InterventionKind];
+  label: string;
+  message: string;
+};
+
+const INTERVENTION_COMBO_WINDOW_TICKS = 8;
+const INTERVENTION_COMBOS: InterventionCombo[] = [
+  {
+    key: "TRUTH_CASCADE",
+    sequence: ["rumor_monitoring", "official_alert"],
+    label: "Truth Cascade",
+    message: "デマ抑止の直後に公式警報が波及し、信頼回復が加速した。",
+  },
+  {
+    key: "EVAC_EXPRESS",
+    sequence: ["multilingual_broadcast", "route_guidance"],
+    label: "Evac Express",
+    message: "多言語警報とルート誘導が噛み合い、避難開始が連鎖した。",
+  },
+  {
+    key: "CARE_CHAIN",
+    sequence: ["support_vulnerable", "operations_rebalance"],
+    label: "Care Chain",
+    message: "要支援者支援と再配分が連携し、現場の負荷が下がった。",
+  },
+];
+let interventionHistory: InterventionHistoryItem[] = [];
+
+const INTERVENTION_KIND_LABELS: Record<InterventionKind, string> = {
+  official_alert: "公式警報一斉配信",
+  open_shelter: "避難所拡張",
+  fact_check: "ファクトチェック",
+  support_vulnerable: "要支援者支援",
+  multilingual_broadcast: "多言語一斉アラート",
+  route_guidance: "避難ルート誘導",
+  rumor_monitoring: "SNSデマ監視",
+  volunteer_mobilization: "ボランティア招集",
+  operations_rebalance: "支援優先度リバランス",
+  triage_dispatch: "誤配分是正トリアージ",
+};
+
+const isInterventionKind = (value: string): value is InterventionKind =>
+  Object.prototype.hasOwnProperty.call(INTERVENTION_KIND_LABELS, value);
+
+const resolveInterventionCombo = (
+  history: InterventionHistoryItem[]
+): InterventionCombo | null => {
+  const latest = history[history.length - 1];
+  if (!latest) return null;
+
+  for (const combo of INTERVENTION_COMBOS) {
+    const [, second] = combo.sequence;
+    if (latest.kind !== second) continue;
+    for (let i = history.length - 2; i >= 0; i -= 1) {
+      const item = history[i];
+      if (!item) continue;
+      if (latest.tick - item.tick > INTERVENTION_COMBO_WINDOW_TICKS) break;
+      if (item.kind === combo.sequence[0]) {
+        return combo;
+      }
+    }
+  }
+
+  return null;
+};
 
 const eventLog: TimelineEvent[] = [];
 const createEventCounts = (): Record<TimelineEventType, number> => ({
@@ -339,6 +431,45 @@ const aiDecisionBackoffMaxMs = Number(
 let aiDecisionNextAt = 0;
 let aiDecisionBackoffUntil = 0;
 let aiDecisionBackoffMs = aiDecisionBackoffBaseMs;
+const forceAiBubbleText = process.env.SIM_FORCE_AI_BUBBLE_TEXT === "true";
+const aiBubbleOnlyAiAgents = process.env.SIM_AI_BUBBLE_ONLY_AI_AGENTS === "true";
+const aiBubbleMinIntervalMs = Math.max(
+  0,
+  resolveNumber(process.env.SIM_AI_BUBBLE_MIN_INTERVAL_MS ?? undefined, 1200)
+);
+const aiBubbleGlobalMinIntervalMs = Math.max(
+  0,
+  resolveNumber(process.env.SIM_AI_BUBBLE_GLOBAL_MIN_INTERVAL_MS ?? undefined, 500)
+);
+const aiBubbleMaxInFlight = Math.max(
+  1,
+  resolveNumber(process.env.SIM_AI_BUBBLE_MAX_INFLIGHT ?? undefined, 2)
+);
+const aiBubbleSampleRate = clamp01(
+  resolveNumber(process.env.SIM_AI_BUBBLE_SAMPLE_RATE ?? undefined, 0.35)
+);
+const aiBubbleBackoffBaseMs = Math.max(
+  1000,
+  resolveNumber(process.env.SIM_AI_BUBBLE_BACKOFF_MS ?? undefined, 10000)
+);
+const aiBubbleBackoffMaxMs = Math.max(
+  aiBubbleBackoffBaseMs,
+  resolveNumber(process.env.SIM_AI_BUBBLE_BACKOFF_MAX_MS ?? undefined, 120000)
+);
+const aiBubbleFallbackMinIntervalMs = Math.max(
+  0,
+  resolveNumber(process.env.SIM_AI_BUBBLE_FALLBACK_MIN_INTERVAL_MS ?? undefined, 900)
+);
+const aiBubbleInFlight = new Set<string>();
+const aiBubbleSeqByAgent = new Map<string, number>();
+const aiBubbleLastQueuedAt = new Map<string, number>();
+const aiBubbleLastFallbackAt = new Map<string, number>();
+let aiBubbleHasAiAgents = false;
+let aiBubbleGlobalLastQueuedAt = 0;
+let aiBubbleActiveRequests = 0;
+let aiBubbleBackoffUntil = 0;
+let aiBubbleBackoffMs = aiBubbleBackoffBaseMs;
+let aiBubbleLastBackoffLogAt = 0;
 
 const roadNeighbors = (pos: { x: number; y: number }) => {
   if (!world) return [];
@@ -357,6 +488,25 @@ const roadNeighbors = (pos: { x: number; y: number }) => {
       tiles[toIndex(candidate.x, candidate.y, width)].startsWith("ROAD")
   );
   return candidates;
+};
+
+const isShelterBuilding = (building: Building) =>
+  building.type === "SHELTER" || building.type === "SCHOOL";
+
+const hasShelterCapacity = (
+  building: Building
+): building is Building & { capacity: number; occupancy?: number } =>
+  typeof building.capacity === "number";
+
+const shelterOccupancyRatio = (building: Building) => {
+  if (!hasShelterCapacity(building) || !building.capacity) return 0;
+  return (building.occupancy ?? 0) / Math.max(1, building.capacity);
+};
+
+const resolveShelterStatus = (building: Building) => {
+  if (building.status === "CLOSED") return "CLOSED";
+  if (!hasShelterCapacity(building)) return "OPEN";
+  return shelterOccupancyRatio(building) >= 0.9 ? "CROWDED" : "OPEN";
 };
 
 const broadcast = (msg: WsServerMsg) => {
@@ -574,7 +724,7 @@ const endSimulation = (reason: SimEndReason) => {
   logInfo("sim end", { reason, tick: world.tick });
 
   if (vectorBootstrap.status === "pending") {
-    void generateVectorInsights()
+    void generateVectorInsights({ simulationId: currentSimulationId })
       .then((vectorInsights) => {
         broadcast({ type: "SIM_END", summary: { ...summary, vectorInsights } });
       })
@@ -592,12 +742,20 @@ const tick = () => {
   const simMinute = getSimMinute(world.tick);
 
   const diffAgents: Record<string, Partial<Agent>> = {};
+  const diffBuildings: Record<string, Partial<Building>> = {};
   const mergeAgentPatch = (agentId: string, patch: Partial<Agent>) => {
     if (!world) return;
     const existing = world.agents[agentId];
     if (!existing) return;
     world.agents[agentId] = { ...existing, ...patch };
     diffAgents[agentId] = { ...(diffAgents[agentId] ?? {}), ...patch };
+  };
+  const mergeBuildingPatch = (buildingId: string, patch: Partial<Building>) => {
+    if (!world) return;
+    const existing = world.buildings[buildingId];
+    if (!existing) return;
+    world.buildings[buildingId] = { ...existing, ...patch };
+    diffBuildings[buildingId] = { ...(diffBuildings[buildingId] ?? {}), ...patch };
   };
   const ambiguityFactor = clamp01(ambiguityLevel / 100);
   const misinfoFactor = clamp01(misinformationLevel / 100);
@@ -669,12 +827,12 @@ const tick = () => {
       if (Math.random() > chance) return;
       mergeAgentPatch(target.id, {
         alertStatus: kind,
-        bubble: buildAgentBubble(target, {
-          tick: world?.tick ?? 0,
-          kind,
-          message,
-        }),
         icon: kind === "RUMOR" ? "RUMOR" : "OFFICIAL",
+      });
+      queueAIBubbleLine({
+        agentId: target.id,
+        action: kind === "RUMOR" ? "RUMOR" : "OFFICIAL",
+        seedMessage: message,
       });
       if (kind === "RUMOR") {
         const stressDelta = 4 + ambiguityFactor * 6 + misinfoFactor * 5;
@@ -702,6 +860,133 @@ const tick = () => {
     });
   };
 
+  let shelterArrivalEvents = 0;
+  const SHELTER_ARRIVAL_EVENT_LIMIT = 3;
+
+  const getShelterTargets = () => {
+    if (!world) return [] as Building[];
+    return Object.values(world.buildings).filter((building) => {
+      if (!isShelterBuilding(building)) return false;
+      if (building.status === "CLOSED") return false;
+      if (!hasShelterCapacity(building)) return true;
+      return (building.occupancy ?? 0) < building.capacity;
+    });
+  };
+
+  const findNearestShelter = (agent: Agent) => {
+    const shelters = getShelterTargets();
+    if (shelters.length === 0) return undefined;
+    let nearest = shelters[0];
+    let nearestDistance = manhattan(agent.pos, nearest.pos);
+    for (let i = 1; i < shelters.length; i += 1) {
+      const candidate = shelters[i];
+      const distance = manhattan(agent.pos, candidate.pos);
+      if (distance < nearestDistance) {
+        nearest = candidate;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  };
+
+  const hasNearbyHelper = (agent: Agent) => {
+    if (!world) return false;
+    return Object.values(world.agents).some((other) => {
+      if (other.id === agent.id) return false;
+      if ((other.evacStatus ?? "STAY") !== "HELPING") return false;
+      return manhattan(agent.pos, other.pos) <= 2;
+    });
+  };
+
+  const tryEnterShelter = (agent: Agent) => {
+    if (!world) return false;
+    if ((agent.evacStatus ?? "STAY") !== "EVACUATING") return false;
+    const nearbyShelters = Object.values(world.buildings).filter((building) => {
+      if (!isShelterBuilding(building)) return false;
+      if (building.status === "CLOSED") return false;
+      return manhattan(agent.pos, building.pos) <= 1;
+    });
+    if (nearbyShelters.length === 0) return false;
+    const target = nearbyShelters.reduce((best, current) =>
+      manhattan(agent.pos, current.pos) < manhattan(agent.pos, best.pos)
+        ? current
+        : best
+    );
+    if (
+      hasShelterCapacity(target) &&
+      target.capacity > 0 &&
+      (target.occupancy ?? 0) >= target.capacity
+    ) {
+      mergeBuildingPatch(target.id, {
+        status: "CROWDED",
+      });
+      queueAIBubbleLine({
+        agentId: agent.id,
+        action: "EVACUATE",
+        seedMessage: "避難所が混雑しています。別ルートを探す。",
+      });
+      updateAgentStress(agent, 3 + ambiguityFactor * 2);
+      return false;
+    }
+
+    if (hasShelterCapacity(target)) {
+      const nextOccupancy = Math.min(
+        target.capacity,
+        Math.max(0, (target.occupancy ?? 0) + 1)
+      );
+      const nextStatus = resolveShelterStatus({
+        ...target,
+        occupancy: nextOccupancy,
+      });
+      mergeBuildingPatch(target.id, {
+        occupancy: nextOccupancy,
+        status: nextStatus,
+      });
+    } else {
+      mergeBuildingPatch(target.id, {
+        status: resolveShelterStatus(target),
+      });
+    }
+
+    mergeAgentPatch(agent.id, {
+      evacStatus: "SHELTERED",
+      alertStatus: "OFFICIAL",
+      icon: "OFFICIAL",
+    });
+    queueAIBubbleLine({
+      agentId: agent.id,
+      action: "CHECKIN",
+      seedMessage: "避難所に到着。安否を共有します。",
+    });
+    updateAgentStress(agent, -8 - factCheckFactor * 3);
+
+    if (shelterArrivalEvents < SHELTER_ARRIVAL_EVENT_LIMIT) {
+      shelterArrivalEvents += 1;
+      addEvent({
+        id: randomId("shelter"),
+        tick: world.tick,
+        type: "CHECKIN",
+        actors: [agent.id],
+        at: target.pos,
+        message: `${agent.name}が避難所に到着した。`,
+      });
+    }
+
+    return true;
+  };
+
+  const syncShelterStatus = () => {
+    if (!world) return;
+    Object.values(world.buildings).forEach((building) => {
+      if (!isShelterBuilding(building) || building.status === "CLOSED") return;
+      const nextStatus = resolveShelterStatus(building);
+      if (nextStatus !== building.status) {
+        mergeBuildingPatch(building.id, { status: nextStatus });
+      }
+    });
+  };
+
+  const tickSnapshot = world.tick;
   Object.values(world.agents).forEach((agent) => {
     if (!agent.isAI) {
       const nextActivity = deriveDailyActivity(agent, simMinute);
@@ -716,15 +1001,15 @@ const tick = () => {
         mergeAgentPatch(agent.id, {
           activity: nextActivity,
           goal: nextGoal,
-          bubble: buildAgentBubble(agent, {
-            tick: world?.tick ?? 0,
-            kind: "ACTIVITY",
-            message: ACTIVITY_LABELS[nextActivity],
-          }),
+        });
+        queueAIBubbleLine({
+          agentId: agent.id,
+          action: "WAIT",
+          seedMessage: ACTIVITY_LABELS[nextActivity],
         });
         addEvent({
           id: randomId("activity"),
-          tick: world.tick,
+          tick: tickSnapshot,
           type: "ACTIVITY",
           actors: [agent.id],
           at: agent.pos,
@@ -755,6 +1040,14 @@ const tick = () => {
           : 0.25;
     const baseMoveChance = 1 - mobilityHold;
     const isAiControlled = aiDecisionEnabled && Boolean(agent.isAI);
+    const evacStatus = agent.evacStatus ?? "STAY";
+    if (evacStatus === "EVACUATING" && tryEnterShelter(agent)) return;
+    const needsEscort =
+      evacStatus === "EVACUATING" && agent.profile.mobility === "needs_assist";
+    const helperNearby = needsEscort ? hasNearbyHelper(agent) : false;
+    if (needsEscort && !helperNearby) {
+      updateAgentStress(agent, 0.8 + misinfoFactor * 1.1);
+    }
     const ambientMoveChance = isAiControlled
       ? agent.profile.mobility === "needs_assist"
         ? 0.04
@@ -762,31 +1055,54 @@ const tick = () => {
           ? 0.08
           : 0.12
       : baseMoveChance;
-    const activityFactor = activityMoveFactor(agent.activity);
-    if (Math.random() > clamp01(ambientMoveChance * activityFactor)) return;
+    const activityFactor = activityMoveFactor(
+      evacStatus === "EVACUATING" ? "EMERGENCY" : agent.activity
+    );
+    const escortFactor = !needsEscort ? 1 : helperNearby ? 0.7 : 0.15;
+    if (Math.random() > clamp01(ambientMoveChance * activityFactor * escortFactor)) return;
     const neighbors = roadNeighbors(agent.pos);
     if (neighbors.length === 0) return;
-    const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+    const shelterTarget =
+      evacStatus === "EVACUATING" ? findNearestShelter(agent) : undefined;
+    let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+    if (shelterTarget) {
+      const bestDistance = Math.min(
+        ...neighbors.map((neighbor) => manhattan(neighbor, shelterTarget.pos))
+      );
+      const bestNeighbors = neighbors.filter(
+        (neighbor) => manhattan(neighbor, shelterTarget.pos) === bestDistance
+      );
+      const shouldFollowGuidance = Math.random() < 0.82 || bestNeighbors.length === 1;
+      if (shouldFollowGuidance) {
+        next = randomPick(bestNeighbors);
+      }
+    }
     if (next.x === agent.pos.x && next.y === agent.pos.y) return;
     const speak = !isAiControlled && Math.random() > 0.9;
+    const prevPos = agent.pos;
     mergeAgentPatch(agent.id, {
       pos: { x: next.x, y: next.y },
       dir:
-        next.x > agent.pos.x
+        next.x > prevPos.x
           ? "E"
-          : next.x < agent.pos.x
+          : next.x < prevPos.x
             ? "W"
-            : next.y > agent.pos.y
+            : next.y > prevPos.y
               ? "S"
               : "N",
-      bubble: speak
-        ? buildAgentBubble(agent, {
-            tick: world?.tick ?? 0,
-            kind: "MOVE",
-          })
-        : agent.bubble,
     });
+    if (speak) {
+      queueAIBubbleLine({
+        agentId: agent.id,
+        action: "MOVE",
+        seedMessage: "移動中",
+      });
+    }
     agent.pos = next;
+    const movedAgent = world?.agents[agent.id];
+    if (movedAgent && (movedAgent.evacStatus ?? "STAY") === "EVACUATING") {
+      tryEnterShelter(movedAgent);
+    }
   });
 
   runAIDecisions();
@@ -794,7 +1110,7 @@ const tick = () => {
   if (Math.random() > 0.68) {
     const agents = Object.values(world.agents);
     if (agents.length === 0) return;
-    const actor = agents[Math.floor(Math.random() * agents.length)];
+    let actor = agents[Math.floor(Math.random() * agents.length)];
     const roll = Math.random();
     const officialAllowed = world.tick >= officialDelayTicks;
     let type: TimelineEventType =
@@ -819,30 +1135,53 @@ const tick = () => {
     if (Math.random() < misinfoFactor * 0.35 + ambiguityFactor * 0.2) {
       type = "RUMOR";
     }
+    if (aiDecisionEnabled && type === "TALK") {
+      // Prefer AI-decided TALK actions over scripted random chatter.
+      type = "MOVE";
+    }
+    if (type === "TALK") {
+      const aiActors = agents.filter((candidate) => candidate.isAI);
+      if (aiActors.length > 0 && (!actor.isAI || Math.random() < 0.7)) {
+        actor = randomPick(aiActors);
+      }
+    }
     const talkTarget =
       type === "TALK"
-        ? (() => {
-            const nearby = getNearbyAgents(actor);
-            if (nearby.length === 0) return null;
-            const pick = nearby[Math.floor(Math.random() * nearby.length)];
-            return world?.agents[pick.id] ?? null;
-          })()
+        ? pickTalkTarget({
+            speaker: actor,
+            preferAiPartner: Boolean(actor.isAI),
+          })
         : null;
     const baseMessage =
       type === "RUMOR" && Math.random() < misinfoFactor * 0.55
         ? randomPick(MISINFO_EVENT_MESSAGES)
         : pickEventMessage(type);
-    const talkMessage =
-      type === "TALK" && talkTarget && !baseMessage.includes(talkTarget.name)
-        ? `${talkTarget.name}さん、${baseMessage}`
-        : baseMessage;
+    const talkExchange =
+      type === "TALK"
+        ? buildTalkExchange({
+            speaker: actor,
+            target: talkTarget,
+            seedMessage: baseMessage,
+          })
+        : undefined;
+    const talkLineSeed =
+      type === "TALK"
+        ? normalizeBubbleLine(talkExchange?.speakerLine ?? baseMessage)
+        : undefined;
     const event: TimelineEvent = {
       id: randomId("ev"),
       tick: world.tick,
       type,
       actors: talkTarget ? [actor.id, talkTarget.id] : [actor.id],
       at: actor.pos,
-      message: talkMessage,
+      message:
+        type === "TALK"
+          ? talkExchange?.timelineMessage ??
+            formatTalkTimelineMessage({
+              speakerName: actor.name,
+              speakerLine: talkLineSeed ?? baseMessage,
+            })
+          : baseMessage,
     };
     addEvent(event);
 
@@ -850,12 +1189,12 @@ const tick = () => {
       actor.alertStatus = "RUMOR";
       mergeAgentPatch(actor.id, {
         alertStatus: "RUMOR",
-        bubble: buildAgentBubble(actor, {
-          tick: world.tick,
-          kind: "RUMOR",
-          message: event.message,
-        }),
         icon: "RUMOR",
+      });
+      queueAIBubbleLine({
+        agentId: actor.id,
+        action: "RUMOR",
+        seedMessage: event.message,
       });
       spreadAlert(actor, "RUMOR", event.message ?? "噂が広がっている…");
     }
@@ -863,12 +1202,12 @@ const tick = () => {
       actor.alertStatus = "OFFICIAL";
       mergeAgentPatch(actor.id, {
         alertStatus: "OFFICIAL",
-        bubble: buildAgentBubble(actor, {
-          tick: world.tick,
-          kind: type === "ALERT" ? "ALERT" : "OFFICIAL",
-          message: event.message,
-        }),
         icon: "OFFICIAL",
+      });
+      queueAIBubbleLine({
+        agentId: actor.id,
+        action: "OFFICIAL",
+        seedMessage: event.message,
       });
       spreadAlert(actor, "OFFICIAL", event.message ?? "公式警報が届いた");
     }
@@ -876,49 +1215,45 @@ const tick = () => {
       actor.evacStatus = "EVACUATING";
       mergeAgentPatch(actor.id, {
         evacStatus: "EVACUATING",
-        bubble: buildAgentBubble(actor, {
-          tick: world.tick,
-          kind: "EVACUATE",
-          message: event.message,
-        }),
+      });
+      queueAIBubbleLine({
+        agentId: actor.id,
+        action: "EVACUATE",
+        seedMessage: event.message,
       });
     }
     if (type === "SUPPORT") {
       actor.evacStatus = "HELPING";
       mergeAgentPatch(actor.id, {
         evacStatus: "HELPING",
-        bubble: buildAgentBubble(actor, {
-          tick: world.tick,
-          kind: "SUPPORT",
-          message: event.message,
-        }),
         icon: "HELP",
+      });
+      queueAIBubbleLine({
+        agentId: actor.id,
+        action: "SUPPORT",
+        seedMessage: event.message,
       });
     }
     if (type === "CHECKIN") {
-      mergeAgentPatch(actor.id, {
-        bubble: buildAgentBubble(actor, {
-          tick: world.tick,
-          kind: "CHECKIN",
-          message: event.message,
-        }),
+      queueAIBubbleLine({
+        agentId: actor.id,
+        action: "CHECKIN",
+        seedMessage: event.message,
       });
     }
     if (type === "TALK") {
-      mergeAgentPatch(actor.id, {
-        bubble: buildAgentBubble(actor, {
-          tick: world.tick,
-          kind: "TALK",
-          message: event.message,
-        }),
+      queueAIBubbleLine({
+        agentId: actor.id,
+        action: "TALK",
+        seedMessage: talkExchange?.speakerLine ?? talkLineSeed ?? event.message,
+        force: true,
       });
       if (talkTarget) {
-        mergeAgentPatch(talkTarget.id, {
-          bubble: buildAgentBubble(talkTarget, {
-            tick: world.tick,
-            kind: "TALK",
-            message: event.message,
-          }),
+        queueAIBubbleLine({
+          agentId: talkTarget.id,
+          action: "TALK",
+          seedMessage: talkExchange?.targetLine ?? talkLineSeed ?? event.message,
+          force: true,
         });
       }
     }
@@ -949,12 +1284,12 @@ const tick = () => {
     selected.forEach((agent) => {
       mergeAgentPatch(agent.id, {
         alertStatus: "OFFICIAL",
-        bubble: buildAgentBubble(agent, {
-          tick: world?.tick ?? 0,
-          kind: "OFFICIAL",
-          message: "公式: 誤情報を訂正しました。",
-        }),
         icon: "OFFICIAL",
+      });
+      queueAIBubbleLine({
+        agentId: agent.id,
+        action: "OFFICIAL",
+        seedMessage: "公式: 誤情報を訂正しました。",
       });
       updateAgentStress(agent, -6 - factCheckFactor * 4);
     });
@@ -968,9 +1303,16 @@ const tick = () => {
   };
 
   runAutoFactCheck();
+  syncShelterStatus();
 
-  if (Object.keys(diffAgents).length > 0) {
-    broadcast({ type: "WORLD_DIFF", tick: world.tick, agents: diffAgents });
+  if (Object.keys(diffAgents).length > 0 || Object.keys(diffBuildings).length > 0) {
+    broadcast({
+      type: "WORLD_DIFF",
+      tick: world.tick,
+      agents: Object.keys(diffAgents).length > 0 ? diffAgents : undefined,
+      buildings:
+        Object.keys(diffBuildings).length > 0 ? diffBuildings : undefined,
+    });
   }
 
   metrics = computeMetricsFromWorld(world);
@@ -1093,6 +1435,25 @@ const getNearbyAgents = (agent: Agent): NearbyAgent[] => {
   return neighbors;
 };
 
+const getNearbyAgentEntities = (agent: Agent): Agent[] => {
+  if (!world) return [];
+  return getNearbyAgents(agent)
+    .map((nearby) => world?.agents[nearby.id])
+    .filter((value): value is Agent => Boolean(value));
+};
+
+const pickTalkTarget = (input: {
+  speaker: Agent;
+  preferredId?: string;
+  preferAiPartner?: boolean;
+}) =>
+  pickTalkTargetAgent({
+    speaker: input.speaker,
+    nearbyAgents: getNearbyAgentEntities(input.speaker),
+    preferredId: input.preferredId,
+    preferAiPartner: input.preferAiPartner,
+  });
+
 const applyAgentPatch = (agentId: string, patch: Partial<Agent>) => {
   if (!world || simEnded) return;
   const agent = world.agents[agentId];
@@ -1101,13 +1462,274 @@ const applyAgentPatch = (agentId: string, patch: Partial<Agent>) => {
   broadcast({ type: "WORLD_DIFF", tick: world.tick, agents: { [agentId]: patch } });
 };
 
-const applyDecision = (
+const normalizeBubbleLine = (value?: string, max = 96) => {
+  if (!value) return undefined;
+  const compact = value.replace(/\s+/g, " ").replace(/^「|」$/g, "").trim();
+  if (!compact) return undefined;
+  if (/^```(?:json)?/i.test(compact)) return undefined;
+  if (compact.startsWith("{") || compact.startsWith("[")) return undefined;
+  if (/^[{\[]/.test(compact) && /"\w+"\s*:/.test(compact)) return undefined;
+  if (/^\s*\{[\s\S]*"\w+"\s*:\s*[^}]*$/m.test(compact)) return undefined;
+  const stripped = compact.replace(/[「」"'`]/g, "").trim();
+  if (!stripped) return undefined;
+  if (/^[.…・,，、。!?！？\-ー~〜]+$/.test(stripped)) return undefined;
+  if (/^(?:\.{2,}|…{1,}|optional|n\/a|null|none)$/i.test(stripped)) return undefined;
+  return compact.length > max ? `${compact.slice(0, max)}…` : compact;
+};
+
+const parseStatusFromMessage = (message: string) => {
+  let code: number | undefined;
+  let status: string | undefined;
+  const jsonMatch = message.match(/\{[\s\S]*\}$/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        error?: { code?: unknown; status?: unknown };
+      };
+      if (typeof parsed.error?.code === "number") {
+        code = parsed.error.code;
+      }
+      if (typeof parsed.error?.status === "string") {
+        status = parsed.error.status;
+      }
+    } catch {
+      // ignore malformed message payload
+    }
+  }
+  if (code === undefined && /\b429\b/.test(message)) {
+    code = 429;
+  }
+  if (!status && message.includes("RESOURCE_EXHAUSTED")) {
+    status = "RESOURCE_EXHAUSTED";
+  }
+  return { code, status };
+};
+
+const extractStatusLike = (
+  value: unknown
+): { code?: number; status?: string; message?: string } => {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  const obj = value as Record<string, unknown>;
+  const rawMessage = typeof obj.message === "string" ? obj.message : undefined;
+  const parsedFromMessage: { code?: number; status?: string } = rawMessage
+    ? parseStatusFromMessage(rawMessage)
+    : {};
+  const code =
+    typeof obj.code === "number" ? obj.code : parsedFromMessage.code;
+  const status =
+    typeof obj.status === "string" ? obj.status : parsedFromMessage.status;
+  return { code, status, message: rawMessage };
+};
+
+const extractVertexErrorStatus = (error: unknown) => {
+  const direct = extractStatusLike(error);
+  const cause = extractStatusLike((error as { cause?: unknown } | undefined)?.cause);
+  const stackTrace = extractStatusLike(
+    (error as { stackTrace?: unknown } | undefined)?.stackTrace
+  );
+  const code = direct.code ?? cause.code ?? stackTrace.code;
+  const status = direct.status ?? cause.status ?? stackTrace.status;
+  const message =
+    direct.message ??
+    cause.message ??
+    stackTrace.message ??
+    (error instanceof Error ? error.message : String(error));
+  return { code, status, message };
+};
+
+const isResourceExhausted = (status: { code?: number; status?: string }) =>
+  status.code === 429 || status.status === "RESOURCE_EXHAUSTED";
+
+const activateAiBubbleBackoff = () => {
+  const until = Date.now() + aiBubbleBackoffMs;
+  aiBubbleBackoffUntil = Math.max(aiBubbleBackoffUntil, until);
+  aiBubbleBackoffMs = Math.min(aiBubbleBackoffMs * 2, aiBubbleBackoffMaxMs);
+  if (Date.now() - aiBubbleLastBackoffLogAt >= 5000) {
+    aiBubbleLastBackoffLogAt = Date.now();
+    logInfo("ai bubble backoff", {
+      until: new Date(aiBubbleBackoffUntil).toISOString(),
+      nextMs: aiBubbleBackoffMs,
+      maxInFlight: aiBubbleMaxInFlight,
+      sampleRate: aiBubbleSampleRate,
+    });
+  }
+};
+
+const bubbleKindFromAction = (action: AgentDecision["action"]) => {
+  switch (action) {
+    case "MOVE":
+      return "MOVE";
+    case "TALK":
+      return "TALK";
+    case "RUMOR":
+      return "RUMOR";
+    case "OFFICIAL":
+      return "OFFICIAL";
+    case "EVACUATE":
+      return "EVACUATE";
+    case "SUPPORT":
+      return "SUPPORT";
+    case "CHECKIN":
+      return "CHECKIN";
+    default:
+      return "AMBIENT";
+  }
+};
+
+const buildRuleBubbleLine = (input: {
+  agent: Agent;
+  action: AgentDecision["action"];
+  seedMessage?: string;
+  thought?: string;
+  tick?: number;
+}) => {
+  const disaster = currentConfig?.disaster ?? "EARTHQUAKE";
+  const line = buildAgentBubble(input.agent, {
+    tick: input.tick ?? world?.tick ?? 0,
+    kind: bubbleKindFromAction(input.action),
+    message: input.seedMessage,
+    thought: input.thought,
+    disaster,
+    metrics,
+    nearbyChatter: getNearbyChatter(input.agent),
+    simConfig: currentConfig
+      ? {
+          emotionTone: currentConfig.emotionTone,
+          ageProfile: currentConfig.ageProfile,
+        }
+      : undefined,
+  });
+  return normalizeBubbleLine(line, 120);
+};
+
+const applyAIBubbleFallback = (
+  agent: Agent,
+  input: { action: AgentDecision["action"]; seedMessage?: string; thought?: string }
+) => {
+  const now = Date.now();
+  const last = aiBubbleLastFallbackAt.get(agent.id) ?? 0;
+  if (now - last < aiBubbleFallbackMinIntervalMs) return;
+  const fallback =
+    buildRuleBubbleLine({
+      agent,
+      action: input.action,
+      seedMessage: input.seedMessage,
+      thought: input.thought,
+    }) ??
+    normalizeBubbleLine(input.seedMessage, 100) ??
+    normalizeBubbleLine(input.thought, 120) ??
+    normalizeBubbleLine(agent.goal, 96) ??
+    normalizeBubbleLine(agent.plan, 96) ??
+    normalizeBubbleLine(agent.reflection, 96);
+  if (!fallback || fallback === agent.bubble) return;
+  aiBubbleLastFallbackAt.set(agent.id, now);
+  applyAgentPatch(agent.id, { bubble: fallback });
+};
+
+const queueAIBubbleLine = (input: {
+  agentId: string;
+  action: AgentDecision["action"];
+  seedMessage?: string;
+  thought?: string;
+  force?: boolean;
+}) => {
+  if (!world || simEnded) return;
+  const agent = world.agents[input.agentId];
+  if (!agent) return;
+  if (aiBubbleOnlyAiAgents && aiBubbleHasAiAgents && !agent.isAI) return;
+
+  applyAIBubbleFallback(agent, input);
+  if (!forceAiBubbleText) return;
+
+  const now = Date.now();
+  if (now < aiBubbleBackoffUntil) return;
+  if (!input.force && Math.random() > aiBubbleSampleRate) return;
+  const lastQueuedAt = aiBubbleLastQueuedAt.get(input.agentId) ?? 0;
+  if (!input.force && now - lastQueuedAt < aiBubbleMinIntervalMs) return;
+  if (aiBubbleInFlight.has(input.agentId)) return;
+  if (aiBubbleActiveRequests >= aiBubbleMaxInFlight) return;
+  const globalGap = input.force
+    ? Math.min(200, aiBubbleGlobalMinIntervalMs)
+    : aiBubbleGlobalMinIntervalMs;
+  if (now - aiBubbleGlobalLastQueuedAt < globalGap) return;
+
+  const seq = (aiBubbleSeqByAgent.get(input.agentId) ?? 0) + 1;
+  aiBubbleSeqByAgent.set(input.agentId, seq);
+  aiBubbleLastQueuedAt.set(input.agentId, now);
+  aiBubbleGlobalLastQueuedAt = now;
+  aiBubbleInFlight.add(input.agentId);
+  aiBubbleActiveRequests += 1;
+
+  const tickSnapshot = world.tick;
+  const recentEvents = eventLog.slice(0, 5);
+  const nearbyChatter = getNearbyChatter(agent);
+  const thought = normalizeBubbleLine(input.thought, 120);
+  const seedMessage = normalizeBubbleLine(input.seedMessage, 100);
+
+  void (async () => {
+    try {
+      const memories = await getRelevantMemories({
+        agent,
+        recentEvents,
+        limit: 4,
+      });
+      const aiLine = await generateAgentBubbleLine({
+        agent,
+        action: input.action,
+        seedMessage,
+        thought,
+        tick: tickSnapshot,
+        metrics,
+        disaster: currentConfig?.disaster ?? "EARTHQUAKE",
+        recentEvents,
+        nearbyChatter,
+        memories,
+        simConfig: currentConfig
+          ? {
+              emotionTone: currentConfig.emotionTone,
+              ageProfile: currentConfig.ageProfile,
+            }
+          : undefined,
+      });
+      const normalized = normalizeBubbleLine(aiLine);
+      if (!normalized) return;
+      if (!world || simEnded) return;
+      if ((aiBubbleSeqByAgent.get(input.agentId) ?? 0) !== seq) return;
+      applyAgentPatch(input.agentId, { bubble: normalized });
+      aiBubbleBackoffMs = aiBubbleBackoffBaseMs;
+    } catch (err) {
+      const status = extractVertexErrorStatus(err);
+      const exhausted = isResourceExhausted(status);
+      if (exhausted) {
+        activateAiBubbleBackoff();
+        applyAIBubbleFallback(agent, input);
+      } else {
+        logDebug("ai bubble generation error", {
+          agent: input.agentId,
+          action: input.action,
+          code: status.code,
+          status: status.status,
+          message: status.message,
+        });
+      }
+    } finally {
+      aiBubbleInFlight.delete(input.agentId);
+      aiBubbleActiveRequests = Math.max(0, aiBubbleActiveRequests - 1);
+    }
+  })();
+};
+
+const applyDecision = async (
   agent: Agent,
   decision: AgentDecision,
   moveOptions: Array<{ x: number; y: number }>
 ) => {
   if (!world || simEnded) return;
+  const decisionTick = world.tick;
   const message = decision.message?.slice(0, 60);
+  let bubbleLine = normalizeBubbleLine(decision.bubbleLine);
   const thoughtSeed = [decision.reflection, decision.plan]
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value))
@@ -1117,6 +1739,59 @@ const applyDecision = (
     decision.action === "OFFICIAL" && world && world.tick < officialDelayTicks
       ? "RUMOR"
       : decision.action;
+  const ruleBubbleLine = buildRuleBubbleLine({
+    agent,
+    action,
+    seedMessage: message,
+    thought,
+    tick: decisionTick,
+  });
+  if (!bubbleLine) {
+    bubbleLine = ruleBubbleLine;
+  }
+  if (!bubbleLine && forceAiBubbleText) {
+    if (Date.now() >= aiBubbleBackoffUntil) {
+      try {
+        const aiBubbleLine = await generateAgentBubbleLine({
+          agent,
+          action,
+          seedMessage: message,
+          thought,
+          tick: decisionTick,
+          metrics,
+          disaster: currentConfig?.disaster ?? "EARTHQUAKE",
+          recentEvents: eventLog.slice(0, 5),
+          nearbyChatter: getNearbyChatter(agent),
+          simConfig: currentConfig
+            ? {
+                emotionTone: currentConfig.emotionTone,
+                ageProfile: currentConfig.ageProfile,
+              }
+            : undefined,
+        });
+        const normalized = normalizeBubbleLine(aiBubbleLine);
+        if (normalized) {
+          bubbleLine = normalized;
+        }
+        aiBubbleBackoffMs = aiBubbleBackoffBaseMs;
+      } catch (err) {
+        const status = extractVertexErrorStatus(err);
+        if (isResourceExhausted(status)) {
+          activateAiBubbleBackoff();
+        } else {
+          logDebug("ai bubble line error", {
+            agent: agent.id,
+            action,
+            code: status.code,
+            status: status.status,
+            message: status.message,
+          });
+        }
+      }
+    }
+    if (!world || simEnded) return;
+  }
+  const bubbleMessage = bubbleLine ?? ruleBubbleLine ?? normalizeBubbleLine(message);
   const agentEvacuating = (agent.evacStatus ?? "STAY") === "EVACUATING";
   const simMinute = getSimMinute(world.tick);
   const fallbackActivity = deriveDailyActivity(agent, simMinute);
@@ -1162,23 +1837,16 @@ const applyDecision = (
             : target.y > agent.pos.y
               ? "S"
               : "N";
-      const bubbleKind = action === "EVACUATE" ? "EVACUATE" : "MOVE";
       const moveThought =
         action === "EVACUATE" || (action === "MOVE" && agentEvacuating)
           ? thought
           : undefined;
+      const fallbackBubble = bubbleMessage ?? moveThought;
       applyWithDecision({
         pos: { x: target.x, y: target.y },
         dir,
         ...(action === "EVACUATE" ? { evacStatus: "EVACUATING" } : {}),
-        bubble: message || moveThought
-          ? buildAgentBubble(agentSnapshot, {
-              tick: world?.tick ?? 0,
-              kind: bubbleKind,
-              message,
-              thought: moveThought,
-            })
-          : agent.bubble,
+        bubble: fallbackBubble ?? agent.bubble,
       });
       addEvent({
         id: randomId("ev"),
@@ -1196,11 +1864,7 @@ const applyDecision = (
   if (action === "RUMOR") {
     applyWithDecision({
       alertStatus: "RUMOR",
-      bubble: buildAgentBubble(agentSnapshot, {
-        tick: world?.tick ?? 0,
-        kind: "RUMOR",
-        message,
-      }),
+      bubble: bubbleMessage ?? agent.bubble,
       icon: "RUMOR",
     });
     addEvent({
@@ -1233,11 +1897,7 @@ const applyDecision = (
   if (action === "OFFICIAL") {
     applyWithDecision({
       alertStatus: "OFFICIAL",
-      bubble: buildAgentBubble(agentSnapshot, {
-        tick: world?.tick ?? 0,
-        kind: "OFFICIAL",
-        message,
-      }),
+      bubble: bubbleMessage ?? agent.bubble,
       icon: "OFFICIAL",
     });
     addEvent({
@@ -1270,11 +1930,7 @@ const applyDecision = (
   if (action === "SUPPORT") {
     applyWithDecision({
       evacStatus: "HELPING",
-      bubble: buildAgentBubble(agentSnapshot, {
-        tick: world?.tick ?? 0,
-        kind: "SUPPORT",
-        message,
-      }),
+      bubble: bubbleMessage ?? agent.bubble,
       icon: "HELP",
     });
     addEvent({
@@ -1306,11 +1962,7 @@ const applyDecision = (
 
   if (action === "CHECKIN") {
     applyWithDecision({
-      bubble: buildAgentBubble(agentSnapshot, {
-        tick: world?.tick ?? 0,
-        kind: "CHECKIN",
-        message,
-      }),
+      bubble: bubbleMessage ?? agent.bubble,
     });
     addEvent({
       id: randomId("ev"),
@@ -1340,49 +1992,153 @@ const applyDecision = (
   }
 
   if (action === "TALK") {
-    const target =
-      decision.targetAgentId && world.agents[decision.targetAgentId]
-        ? world.agents[decision.targetAgentId]
-        : (() => {
-            const neighbors = getNearbyAgents(agent);
-            if (neighbors.length === 0) return null;
-            const pick = neighbors[Math.floor(Math.random() * neighbors.length)];
-            return world?.agents[pick.id] ?? null;
-          })();
-    const finalMessage =
-      message && target && !message.includes(target.name)
-        ? `${target.name}さん、${message}`
-        : message;
-    applyWithDecision({
-      bubble: buildAgentBubble(agentSnapshot, {
-        tick: world?.tick ?? 0,
-        kind: "TALK",
-        message: finalMessage,
-      }),
+    const target = pickTalkTarget({
+      speaker: agent,
+      preferredId: decision.targetAgentId,
+      preferAiPartner: Boolean(agent.isAI),
     });
-    if (target) {
-      applyAgentPatch(target.id, {
-        bubble: buildAgentBubble(target, {
-          tick: world?.tick ?? 0,
-          kind: "TALK",
-          message: finalMessage,
-        }),
+    const talkExchange = buildTalkExchange({
+      speaker: agentSnapshot,
+      target,
+      seedMessage: message ?? bubbleMessage ?? thought,
+    });
+    const baseSpeakerSeed =
+      bubbleLine ??
+      normalizeBubbleLine(talkExchange.speakerLine) ??
+      normalizeBubbleLine(message);
+    let speakerLine = normalizeBubbleLine(baseSpeakerSeed);
+    let targetLine: string | undefined = normalizeBubbleLine(talkExchange.targetLine);
+
+    if (!speakerLine && forceAiBubbleText) {
+      if (Date.now() >= aiBubbleBackoffUntil) {
+        try {
+          const aiSpeakerLine = await generateAgentTalkSpeakerLine({
+            speaker: agentSnapshot,
+            target,
+            seedLine: baseSpeakerSeed,
+            tick: decisionTick,
+            metrics,
+            disaster: currentConfig?.disaster ?? "EARTHQUAKE",
+            recentEvents: eventLog.slice(0, 5),
+            nearbyChatter: getNearbyChatter(agent),
+            simConfig: currentConfig
+              ? {
+                  emotionTone: currentConfig.emotionTone,
+                  ageProfile: currentConfig.ageProfile,
+                }
+              : undefined,
+          });
+          const normalizedSpeaker = normalizeBubbleLine(aiSpeakerLine);
+          if (normalizedSpeaker) {
+            speakerLine = normalizedSpeaker;
+          }
+          aiBubbleBackoffMs = aiBubbleBackoffBaseMs;
+        } catch (err) {
+          const status = extractVertexErrorStatus(err);
+          if (isResourceExhausted(status)) {
+            activateAiBubbleBackoff();
+          } else {
+            logDebug("ai talk speaker error", {
+              speaker: agent.id,
+              code: status.code,
+              status: status.status,
+              message: status.message,
+            });
+          }
+        }
+      }
+      if (!world || simEnded) return;
+    }
+
+    if (
+      target &&
+      !targetLine &&
+      forceAiBubbleText &&
+      aiDecisionEnabled &&
+      speakerLine &&
+      Date.now() >= aiBubbleBackoffUntil
+    ) {
+      try {
+        const targetMemories = await getRelevantMemories({
+          agent: target,
+          recentEvents: eventLog.slice(0, 5),
+          limit: 4,
+        });
+        const aiReply = await generateAgentTalkReply({
+          speaker: agentSnapshot,
+          target,
+          speakerLine,
+          tick: decisionTick,
+          metrics,
+          disaster: currentConfig?.disaster ?? "EARTHQUAKE",
+          recentEvents: eventLog.slice(0, 5),
+          nearbyChatter: getNearbyChatter(target),
+          memories: targetMemories,
+          simConfig: currentConfig
+            ? {
+                emotionTone: currentConfig.emotionTone,
+                ageProfile: currentConfig.ageProfile,
+              }
+            : undefined,
+        });
+        const normalizedReply = normalizeBubbleLine(aiReply);
+        if (normalizedReply) {
+          targetLine = normalizedReply;
+        }
+        aiBubbleBackoffMs = aiBubbleBackoffBaseMs;
+      } catch (err) {
+        const status = extractVertexErrorStatus(err);
+        if (isResourceExhausted(status)) {
+          activateAiBubbleBackoff();
+        } else {
+          logDebug("ai talk reply error", {
+            speaker: agent.id,
+            target: target.id,
+            code: status.code,
+            status: status.status,
+            message: status.message,
+          });
+        }
+      }
+      if (!world || simEnded) return;
+    }
+
+    const resolvedSpeakerLine =
+      speakerLine ??
+      normalizeBubbleLine(talkExchange.speakerLine) ??
+      normalizeBubbleLine(message) ??
+      normalizeBubbleLine(agent.bubble);
+    if (!resolvedSpeakerLine) return;
+    applyWithDecision({ bubble: resolvedSpeakerLine });
+    if (target && targetLine) {
+      applyAgentPatch(target.id, { bubble: targetLine });
+    } else if (target) {
+      queueAIBubbleLine({
+        agentId: target.id,
+        action: "TALK",
+        seedMessage: resolvedSpeakerLine,
+        force: true,
       });
     }
     addEvent({
       id: randomId("ev"),
-      tick: world.tick,
+      tick: decisionTick,
       type: "TALK",
       actors: target ? [agent.id, target.id] : [agent.id],
       at: agent.pos,
-      message: finalMessage ?? pickEventMessage("TALK"),
+      message: formatTalkTimelineMessage({
+        speakerName: agent.name,
+        speakerLine: resolvedSpeakerLine,
+        targetName: target?.name,
+        targetLine,
+      }),
     });
     if (decision.reflection) {
       void recordAgentMemory({
         agent,
         content: `内省: ${decision.reflection}`,
         sourceType: "reflection",
-        metadata: { tick: world.tick, action },
+        metadata: { tick: decisionTick, action },
       });
     }
     if (decision.plan) {
@@ -1390,7 +2146,7 @@ const applyDecision = (
         agent,
         content: `計画: ${decision.plan}`,
         sourceType: "plan",
-        metadata: { tick: world.tick, action },
+        metadata: { tick: decisionTick, action },
       });
     }
     return;
@@ -1398,13 +2154,9 @@ const applyDecision = (
 
   if (action === "WAIT") {
     const waitThought = agentEvacuating ? thought : undefined;
+    const waitLine = bubbleMessage ?? waitThought;
     applyWithDecision({
-      bubble: buildAgentBubble(agentSnapshot, {
-        tick: world?.tick ?? 0,
-        kind: "ACTIVITY",
-        message: nextActivity ? ACTIVITY_LABELS[nextActivity] : undefined,
-        thought: waitThought,
-      }),
+      bubble: waitLine ?? agent.bubble,
     });
   }
 
@@ -1474,15 +2226,14 @@ const runAIDecisions = () => {
           : undefined,
       });
     })()
-      .then((decision) => {
+      .then(async (decision) => {
         aiDecisionBackoffMs = aiDecisionBackoffBaseMs;
         logDebug("ai decision", { agent: agent.id, action: decision.action });
-        applyDecision(agent, decision, moveOptions);
+        await applyDecision(agent, decision, moveOptions);
       })
       .catch((err) => {
-        logDebug("ai decision error", { agent: agent.id, error: err });
-        const status = (err as { code?: number; status?: string }) ?? {};
-        if (status.code === 429 || status.status === "RESOURCE_EXHAUSTED") {
+        const status = extractVertexErrorStatus(err);
+        if (isResourceExhausted(status)) {
           const next = Date.now() + aiDecisionBackoffMs;
           aiDecisionBackoffUntil = Math.max(aiDecisionBackoffUntil, next);
           aiDecisionBackoffMs = Math.min(
@@ -1493,7 +2244,14 @@ const runAIDecisions = () => {
             until: new Date(aiDecisionBackoffUntil).toISOString(),
             ms: aiDecisionBackoffMs,
           });
+          return;
         }
+        logDebug("ai decision error", {
+          agent: agent.id,
+          code: status.code,
+          status: status.status,
+          message: status.message,
+        });
       })
       .finally(() => {
         decisionInFlight.delete(agent.id);
@@ -1540,6 +2298,9 @@ const handleSelectAgent = async (client: WebSocket, agentId: string) => {
 
 const initSimulation = (config: SimConfig) => {
   world = createMockWorld(config);
+  aiBubbleHasAiAgents = Object.values(world.agents).some((agent) => Boolean(agent.isAI));
+  currentSimulationId = randomId("sim");
+  setMemoryPipelineSimulationId(currentSimulationId);
   speed = 1;
   paused = false;
   simEnded = false;
@@ -1568,11 +2329,21 @@ const initSimulation = (config: SimConfig) => {
   };
   eventLog.length = 0;
   eventCounts = createEventCounts();
+  interventionHistory = [];
   reasoningCache.clear();
   decisionInFlight.clear();
   aiDecisionNextAt = 0;
   aiDecisionBackoffUntil = 0;
   aiDecisionBackoffMs = aiDecisionBackoffBaseMs;
+  aiBubbleInFlight.clear();
+  aiBubbleSeqByAgent.clear();
+  aiBubbleLastQueuedAt.clear();
+  aiBubbleLastFallbackAt.clear();
+  aiBubbleGlobalLastQueuedAt = 0;
+  aiBubbleActiveRequests = 0;
+  aiBubbleBackoffUntil = 0;
+  aiBubbleBackoffMs = aiBubbleBackoffBaseMs;
+  aiBubbleLastBackoffLogAt = 0;
   logInfo("init", config);
   broadcast({ type: "WORLD_INIT", world });
   startLoop();
@@ -1629,16 +2400,9 @@ wss.on("connection", (client) => {
     }
     if (msg.type === "INTERVENTION") {
       if (!world || simEnded) return;
-      const kindLabel: Record<string, string> = {
-        official_alert: "公式警報一斉配信",
-        open_shelter: "避難所拡張",
-        fact_check: "ファクトチェック",
-        support_vulnerable: "要支援者支援",
-        multilingual_broadcast: "多言語一斉アラート",
-        route_guidance: "避難ルート誘導",
-        rumor_monitoring: "SNSデマ監視",
-        volunteer_mobilization: "ボランティア招集",
-      };
+      if (!isInterventionKind(msg.payload.kind)) return;
+      const interventionKind = msg.payload.kind;
+      const interventionTick = world.tick;
       const diffAgents: Record<string, Partial<Agent>> = {};
       const diffBuildings: Record<string, Partial<Building>> = {};
       const mergeAgentPatch = (agentId: string, patch: Partial<Agent>) => {
@@ -1666,27 +2430,127 @@ wss.on("connection", (client) => {
           base * trustFactor * rumorPenalty * officialAccessibility(agent, coverage)
         );
       };
+      const applyComboEffect = (combo: InterventionCombo) => {
+        if (!world) return;
+        if (combo.key === "TRUTH_CASCADE") {
+          Object.values(world.agents).forEach((agent) => {
+            if (agent.alertStatus !== "RUMOR") return;
+            if (Math.random() > officialAcceptance(agent, 0.92)) return;
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 12, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              alertStatus: "OFFICIAL",
+              evacStatus: agent.evacStatus === "STAY" ? "EVACUATING" : agent.evacStatus,
+              icon: "OFFICIAL",
+              state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "OFFICIAL",
+              seedMessage: "訂正情報が一気に浸透した",
+            });
+          });
+          return;
+        }
+
+        if (combo.key === "EVAC_EXPRESS") {
+          Object.values(world.agents).forEach((agent) => {
+            const evacStatus = agent.evacStatus ?? "STAY";
+            if (evacStatus !== "STAY") return;
+            const assistPenalty = agent.profile.mobility === "needs_assist" ? -0.15 : 0;
+            const guideChance = clamp01(
+              0.48 + agent.profile.trustLevel / 240 + assistPenalty
+            );
+            if (Math.random() > guideChance) return;
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 7, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              evacStatus: "EVACUATING",
+              alertStatus: "OFFICIAL",
+              icon: "OFFICIAL",
+              state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "EVACUATE",
+              seedMessage: "案内が届き、避難を開始",
+            });
+          });
+          return;
+        }
+
+        if (combo.key === "CARE_CHAIN") {
+          Object.values(world.agents).forEach((agent) => {
+            if (isVulnerable(agent) && (agent.evacStatus ?? "STAY") === "STAY") {
+              if (Math.random() > officialAcceptance(agent, 0.9)) return;
+              const nextState = {
+                ...agent.state,
+                stress: clamp(agent.state.stress - 10, 0, 100),
+              };
+              mergeAgentPatch(agent.id, {
+                evacStatus: "EVACUATING",
+                alertStatus: "OFFICIAL",
+                icon: "HELP",
+                state: nextState,
+              });
+              queueAIBubbleLine({
+                agentId: agent.id,
+                action: "SUPPORT",
+                seedMessage: "優先支援ルートで避難開始",
+              });
+              return;
+            }
+            if (["volunteer", "medical", "staff", "leader"].includes(agent.profile.role)) {
+              const nextState = {
+                ...agent.state,
+                stress: clamp(agent.state.stress - 5, 0, 100),
+              };
+              mergeAgentPatch(agent.id, {
+                evacStatus: "HELPING",
+                icon: "HELP",
+                state: nextState,
+              });
+              queueAIBubbleLine({
+                agentId: agent.id,
+                action: "SUPPORT",
+                seedMessage: "優先支援体制へ移行",
+              });
+            }
+          });
+        }
+      };
       const event: TimelineEvent = {
         id: randomId("intervention"),
-        tick: world.tick,
+        tick: interventionTick,
         type: "INTERVENTION",
-        message: `${kindLabel[msg.payload.kind] ?? msg.payload.kind}: ${
+        message: `${INTERVENTION_KIND_LABELS[interventionKind]}: ${
           msg.payload.message ?? "対応を実行しました"
         }`,
+        meta: {
+          interventionKind,
+        },
       };
       addEvent(event);
+      interventionHistory.push({ kind: interventionKind, tick: interventionTick });
+      if (interventionHistory.length > 24) {
+        interventionHistory = interventionHistory.slice(-24);
+      }
 
-      if (msg.payload.kind === "official_alert") {
+      if (interventionKind === "official_alert") {
         Object.values(world.agents).forEach((agent) => {
           if (Math.random() > officialAcceptance(agent, 0.85)) return;
           mergeAgentPatch(agent.id, {
             alertStatus: "OFFICIAL",
-            bubble: buildAgentBubble(agent, {
-              tick: world.tick,
-              kind: "OFFICIAL",
-              message: msg.payload.message ?? "公式警報が届いた",
-            }),
             icon: "OFFICIAL",
+          });
+          queueAIBubbleLine({
+            agentId: agent.id,
+            action: "OFFICIAL",
+            seedMessage: msg.payload.message ?? "公式警報が届いた",
           });
           if (isVulnerable(agent) && agent.evacStatus !== "HELPING") {
             const nextState = {
@@ -1701,7 +2565,7 @@ wss.on("connection", (client) => {
         });
       }
 
-      if (msg.payload.kind === "fact_check") {
+      if (interventionKind === "fact_check") {
         Object.values(world.agents).forEach((agent) => {
           if (agent.alertStatus !== "RUMOR") return;
           if (Math.random() > officialAcceptance(agent, 0.7)) return;
@@ -1711,18 +2575,18 @@ wss.on("connection", (client) => {
           };
           mergeAgentPatch(agent.id, {
             alertStatus: "OFFICIAL",
-            bubble: buildAgentBubble(agent, {
-              tick: world.tick,
-              kind: "OFFICIAL",
-              message: msg.payload.message ?? "誤情報が訂正された",
-            }),
             icon: "OFFICIAL",
             state: nextState,
+          });
+          queueAIBubbleLine({
+            agentId: agent.id,
+            action: "OFFICIAL",
+            seedMessage: msg.payload.message ?? "誤情報が訂正された",
           });
         });
       }
 
-      if (msg.payload.kind === "support_vulnerable") {
+      if (interventionKind === "support_vulnerable") {
         Object.values(world.agents).forEach((agent) => {
           if (isVulnerable(agent)) {
             const nextState = {
@@ -1731,31 +2595,31 @@ wss.on("connection", (client) => {
             };
             mergeAgentPatch(agent.id, {
               evacStatus: agent.evacStatus === "HELPING" ? "HELPING" : "EVACUATING",
-              bubble: buildAgentBubble(agent, {
-                tick: world.tick,
-                kind: "SUPPORT",
-                message: msg.payload.message ?? "支援班が到着した",
-              }),
               icon: "HELP",
               state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "SUPPORT",
+              seedMessage: msg.payload.message ?? "支援班が到着した",
             });
             return;
           }
           if (["volunteer", "medical", "staff"].includes(agent.profile.role)) {
             mergeAgentPatch(agent.id, {
               evacStatus: "HELPING",
-              bubble: buildAgentBubble(agent, {
-                tick: world.tick,
-                kind: "SUPPORT",
-                message: msg.payload.message ?? "要支援者の誘導を開始",
-              }),
               icon: "HELP",
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "SUPPORT",
+              seedMessage: msg.payload.message ?? "要支援者の誘導を開始",
             });
           }
         });
       }
 
-      if (msg.payload.kind === "open_shelter") {
+      if (interventionKind === "open_shelter") {
         Object.values(world.buildings).forEach((building) => {
           if (building.type !== "SHELTER" && building.type !== "SCHOOL") return;
           const nextOccupancy =
@@ -1769,7 +2633,7 @@ wss.on("connection", (client) => {
         });
       }
 
-      if (msg.payload.kind === "multilingual_broadcast") {
+      if (interventionKind === "multilingual_broadcast") {
         const boostedCoverage = Math.min(100, multilingualCoverage + 30);
         Object.values(world.agents).forEach((agent) => {
           if (agent.alertStatus === "OFFICIAL") return;
@@ -1783,13 +2647,13 @@ wss.on("connection", (client) => {
           };
           mergeAgentPatch(agent.id, {
             alertStatus: "OFFICIAL",
-            bubble: buildAgentBubble(agent, {
-              tick: world.tick,
-              kind: "OFFICIAL",
-              message: msg.payload.message ?? "多言語で警報が届いた",
-            }),
             icon: "OFFICIAL",
             state: nextState,
+          });
+          queueAIBubbleLine({
+            agentId: agent.id,
+            action: "OFFICIAL",
+            seedMessage: msg.payload.message ?? "多言語で警報が届いた",
           });
           if (isVulnerable(agent) && agent.evacStatus !== "HELPING") {
             mergeAgentPatch(agent.id, {
@@ -1799,7 +2663,7 @@ wss.on("connection", (client) => {
         });
       }
 
-      if (msg.payload.kind === "route_guidance") {
+      if (interventionKind === "route_guidance") {
         Object.values(world.agents).forEach((agent) => {
           const evacStatus = agent.evacStatus ?? "STAY";
           const canMove =
@@ -1821,13 +2685,13 @@ wss.on("connection", (client) => {
             mergeAgentPatch(agent.id, {
               evacStatus: "EVACUATING",
               alertStatus: "OFFICIAL",
-              bubble: buildAgentBubble(agent, {
-                tick: world.tick,
-                kind: "OFFICIAL",
-                message: msg.payload.message ?? "安全ルートが案内された",
-              }),
               icon: "OFFICIAL",
               state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "EVACUATE",
+              seedMessage: msg.payload.message ?? "安全ルートが案内された",
             });
             return;
           }
@@ -1841,7 +2705,144 @@ wss.on("connection", (client) => {
         });
       }
 
-      if (msg.payload.kind === "rumor_monitoring") {
+      if (interventionKind === "operations_rebalance") {
+        const responderRoles: Agent["profile"]["role"][] = [
+          "volunteer",
+          "medical",
+          "staff",
+          "leader",
+        ];
+        Object.values(world.agents).forEach((agent) => {
+          const evacStatus = agent.evacStatus ?? "STAY";
+          const vulnerable = isVulnerable(agent);
+          const isResponder = responderRoles.includes(agent.profile.role);
+
+          if (
+            agent.alertStatus === "RUMOR" &&
+            Math.random() <= officialAcceptance(agent, 0.86)
+          ) {
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 9, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              alertStatus: "OFFICIAL",
+              icon: "OFFICIAL",
+              state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "OFFICIAL",
+              seedMessage: msg.payload.message ?? "優先度の再配分を実施した",
+            });
+          }
+
+          if (vulnerable && evacStatus === "STAY") {
+            if (Math.random() > officialAcceptance(agent, 0.9)) return;
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - 11, 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              evacStatus: "EVACUATING",
+              alertStatus: "OFFICIAL",
+              icon: "HELP",
+              state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "SUPPORT",
+              seedMessage: msg.payload.message ?? "要支援者優先で搬送を開始",
+            });
+            return;
+          }
+
+          if (!vulnerable && ["EVACUATING", "HELPING"].includes(evacStatus)) {
+            const settleBase = isResponder ? 0.42 : 0.74;
+            const rumorPenalty = agent.alertStatus === "RUMOR" ? -0.14 : 0;
+            const officialBoost = agent.alertStatus === "OFFICIAL" ? 0.08 : 0;
+            const settleChance = clamp01(settleBase + rumorPenalty + officialBoost);
+            if (Math.random() > settleChance) return;
+            const nextState = {
+              ...agent.state,
+              stress: clamp(agent.state.stress - (isResponder ? 4 : 7), 0, 100),
+            };
+            mergeAgentPatch(agent.id, {
+              evacStatus: "STAY",
+              alertStatus: "OFFICIAL",
+              icon: "OFFICIAL",
+              state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "OFFICIAL",
+              seedMessage: msg.payload.message ?? "要支援者優先で待機へ切替",
+            });
+          }
+        });
+      }
+
+      if (interventionKind === "triage_dispatch") {
+        const responderRoles: Agent["profile"]["role"][] = [
+          "volunteer",
+          "medical",
+          "staff",
+          "leader",
+        ];
+        Object.values(world.agents).forEach((agent) => {
+          const evacStatus = agent.evacStatus ?? "STAY";
+          const vulnerable = isVulnerable(agent);
+          const isResponder = responderRoles.includes(agent.profile.role);
+          const isNonVulnerableActive =
+            !vulnerable && ["EVACUATING", "HELPING"].includes(evacStatus);
+
+          if (isNonVulnerableActive) {
+            const retaskBase = isResponder ? 0.56 : 0.84;
+            const rumorBoost = agent.alertStatus === "RUMOR" ? 0.1 : 0;
+            const helperBoost = evacStatus === "HELPING" ? 0.06 : 0;
+            const retaskChance = clamp01(retaskBase + rumorBoost + helperBoost);
+            if (Math.random() <= retaskChance) {
+              const nextState = {
+                ...agent.state,
+                stress: clamp(agent.state.stress - (isResponder ? 6 : 9), 0, 100),
+              };
+              mergeAgentPatch(agent.id, {
+                evacStatus: "STAY",
+                alertStatus: "OFFICIAL",
+                icon: "OFFICIAL",
+                state: nextState,
+              });
+              queueAIBubbleLine({
+                agentId: agent.id,
+                action: "OFFICIAL",
+                seedMessage: msg.payload.message ?? "不要な出動を停止して待機に戻る",
+              });
+            }
+          }
+
+          if (agent.alertStatus === "RUMOR") {
+            const correctionBase = vulnerable ? 0.78 : 0.9;
+            if (Math.random() <= officialAcceptance(agent, correctionBase)) {
+              const nextState = {
+                ...agent.state,
+                stress: clamp(agent.state.stress - 9, 0, 100),
+              };
+              mergeAgentPatch(agent.id, {
+                alertStatus: "OFFICIAL",
+                icon: vulnerable ? "HELP" : "OFFICIAL",
+                state: nextState,
+              });
+              queueAIBubbleLine({
+                agentId: agent.id,
+                action: "OFFICIAL",
+                seedMessage: msg.payload.message ?? "要請内容を再確認し、誤情報を訂正した",
+              });
+            }
+          }
+        });
+      }
+
+      if (interventionKind === "rumor_monitoring") {
         Object.values(world.agents).forEach((agent) => {
           if (agent.alertStatus !== "RUMOR") return;
           const base = agent.profile.trustLevel > 65 ? 0.88 : 0.8;
@@ -1852,18 +2853,18 @@ wss.on("connection", (client) => {
           };
           mergeAgentPatch(agent.id, {
             alertStatus: "OFFICIAL",
-            bubble: buildAgentBubble(agent, {
-              tick: world.tick,
-              kind: "OFFICIAL",
-              message: msg.payload.message ?? "デマが訂正された",
-            }),
             icon: "OFFICIAL",
             state: nextState,
+          });
+          queueAIBubbleLine({
+            agentId: agent.id,
+            action: "OFFICIAL",
+            seedMessage: msg.payload.message ?? "デマが訂正された",
           });
         });
       }
 
-      if (msg.payload.kind === "volunteer_mobilization") {
+      if (interventionKind === "volunteer_mobilization") {
         Object.values(world.agents).forEach((agent) => {
           if (isVulnerable(agent) && (agent.evacStatus ?? "STAY") === "STAY") {
             const assistChance =
@@ -1875,13 +2876,13 @@ wss.on("connection", (client) => {
             };
             mergeAgentPatch(agent.id, {
               evacStatus: "EVACUATING",
-              bubble: buildAgentBubble(agent, {
-                tick: world.tick,
-                kind: "SUPPORT",
-                message: msg.payload.message ?? "支援班が誘導を開始",
-              }),
               icon: "HELP",
               state: nextState,
+            });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "SUPPORT",
+              seedMessage: msg.payload.message ?? "支援班が誘導を開始",
             });
             return;
           }
@@ -1893,31 +2894,47 @@ wss.on("connection", (client) => {
             };
             mergeAgentPatch(agent.id, {
               evacStatus: "HELPING",
-              bubble: buildAgentBubble(agent, {
-                tick: world.tick,
-                kind: "SUPPORT",
-                message: msg.payload.message ?? "支援要員が動員された",
-              }),
               icon: "HELP",
               state: nextState,
             });
+            queueAIBubbleLine({
+              agentId: agent.id,
+              action: "SUPPORT",
+              seedMessage: msg.payload.message ?? "支援要員が動員された",
+            });
           }
+        });
+      }
+
+      const triggeredCombo = resolveInterventionCombo(interventionHistory);
+      if (triggeredCombo) {
+        applyComboEffect(triggeredCombo);
+        addEvent({
+          id: randomId("combo"),
+          tick: interventionTick,
+          type: "INTERVENTION",
+          message: `COMBO ${triggeredCombo.label}: ${triggeredCombo.message}`,
+          meta: {
+            comboKey: triggeredCombo.key,
+            comboLabel: triggeredCombo.label,
+            interventionKind,
+          },
         });
       }
 
       if (Object.keys(diffAgents).length > 0 || Object.keys(diffBuildings).length > 0) {
         broadcast({
           type: "WORLD_DIFF",
-          tick: world.tick,
+          tick: interventionTick,
           agents: Object.keys(diffAgents).length > 0 ? diffAgents : undefined,
           buildings: Object.keys(diffBuildings).length > 0 ? diffBuildings : undefined,
         });
       }
 
       metrics = computeMetricsFromWorld(world);
-      updateMetricPeaks(world.tick, metrics);
-      broadcast({ type: "METRICS", metrics, tick: world.tick });
-      logInfo("intervention", msg.payload.kind);
+      updateMetricPeaks(interventionTick, metrics);
+      broadcast({ type: "METRICS", metrics, tick: interventionTick });
+      logInfo("intervention", interventionKind);
       return;
     }
     if (msg.type === "SELECT_AGENT") {
@@ -1934,5 +2951,10 @@ server.listen(port, () => {
     aiDecisionCount,
     aiDecisionIntervalMs,
     aiDecisionMaxInFlight,
+    forceAiBubbleText,
+    aiBubbleSampleRate,
+    aiBubbleMaxInFlight,
+    aiBubbleMinIntervalMs,
+    aiBubbleGlobalMinIntervalMs,
   });
 });

@@ -3,13 +3,17 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --font-app-sans: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic UI",
+    "Yu Gothic", "Meiryo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-app-mono: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-app-sans);
+  --font-mono: var(--font-app-mono);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,7 +31,7 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans);
+  font-family: var(--font-app-sans);
   overflow: hidden;
 }
 
@@ -54,6 +58,181 @@ body {
 
 .fancy-scroll::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(52, 211, 153, 0.9), rgba(59, 130, 246, 0.85));
+}
+
+.timeline-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.8) rgba(8, 14, 26, 0.85);
+  scroll-behavior: smooth;
+}
+
+.timeline-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+
+.timeline-scroll::-webkit-scrollbar-track {
+  background:
+    linear-gradient(180deg, rgba(14, 22, 40, 0.9), rgba(4, 9, 20, 0.95)),
+    radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 60%);
+  border-radius: 999px;
+  border: 1px solid rgba(51, 65, 85, 0.55);
+}
+
+.timeline-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(52, 211, 153, 0.95),
+    rgba(56, 189, 248, 0.92) 48%,
+    rgba(59, 130, 246, 0.95)
+  );
+  border-radius: 999px;
+  border: 2px solid rgba(6, 12, 22, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.3),
+    0 10px 20px rgba(14, 165, 233, 0.26);
+}
+
+.timeline-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(110, 231, 183, 1),
+    rgba(103, 232, 249, 0.98) 52%,
+    rgba(96, 165, 250, 1)
+  );
+}
+
+@keyframes comboRingSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes comboRingPulse {
+  0%,
+  100% {
+    opacity: 0.52;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes comboSweepMove {
+  0% {
+    transform: translateX(-140%) skewX(-18deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(210%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+.combo-highlight {
+  position: relative;
+  isolation: isolate;
+}
+
+.combo-highlight::before {
+  content: "";
+  position: absolute;
+  inset: -44%;
+  z-index: 0;
+  animation: comboRingSpin 2.4s linear infinite;
+  transform-origin: center;
+}
+
+.combo-highlight::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.08), transparent 55%),
+    rgba(2, 6, 23, 0.86);
+}
+
+.combo-highlight-finisher::before {
+  background: conic-gradient(
+    from 0deg,
+    rgba(251, 113, 133, 0.12),
+    rgba(251, 113, 133, 0.98),
+    rgba(251, 146, 60, 0.98),
+    rgba(250, 204, 21, 0.94),
+    rgba(251, 113, 133, 0.12)
+  );
+  animation:
+    comboRingSpin 1.2s linear infinite,
+    comboRingPulse 0.85s ease-in-out infinite;
+}
+
+.combo-highlight-finisher::after {
+  background:
+    radial-gradient(circle at 15% -20%, rgba(251, 113, 133, 0.22), transparent 55%),
+    radial-gradient(circle at 100% 120%, rgba(251, 146, 60, 0.2), transparent 50%),
+    rgba(34, 8, 20, 0.82);
+}
+
+.combo-highlight-starter::before {
+  background: conic-gradient(
+    from 90deg,
+    rgba(125, 211, 252, 0.12),
+    rgba(56, 189, 248, 0.98),
+    rgba(6, 182, 212, 0.95),
+    rgba(34, 211, 238, 0.96),
+    rgba(16, 185, 129, 0.86),
+    rgba(125, 211, 252, 0.12)
+  );
+  animation:
+    comboRingSpin 1.8s linear infinite,
+    comboRingPulse 1.05s ease-in-out infinite;
+}
+
+.combo-highlight-starter::after {
+  background:
+    radial-gradient(circle at 20% -20%, rgba(34, 211, 238, 0.2), transparent 52%),
+    radial-gradient(circle at 100% 110%, rgba(59, 130, 246, 0.18), transparent 54%),
+    rgba(6, 22, 36, 0.84);
+}
+
+.combo-sweep {
+  position: absolute;
+  left: -36%;
+  top: -30%;
+  width: 44%;
+  height: 190%;
+  z-index: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.combo-sweep-finisher {
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(251, 113, 133, 0.96),
+    rgba(251, 146, 60, 0.88),
+    transparent
+  );
+  animation: comboSweepMove 1.05s linear infinite;
+}
+
+.combo-sweep-starter {
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(34, 211, 238, 0.95),
+    rgba(96, 165, 250, 0.84),
+    transparent
+  );
+  animation: comboSweepMove 1.3s linear infinite;
 }
 
 @keyframes tabGlowPulse {
@@ -224,5 +403,15 @@ body {
 
   .start-cta:not(:disabled):hover::after {
     animation: none;
+  }
+
+  .combo-highlight::before {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  .combo-sweep {
+    animation: none;
+    display: none;
   }
 }

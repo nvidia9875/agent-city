@@ -570,37 +570,6 @@ const IconTarget = ({ className = "h-4 w-4" }: IconProps) => (
   </svg>
 );
 
-const IconShield = ({ className = "h-4 w-4" }: IconProps) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z" />
-    <path d="M9 12l2 2 4-4" />
-  </svg>
-);
-
-const IconTiming = ({ className = "h-4 w-4" }: IconProps) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 7v5" />
-    <path d="M12 12l3 2" />
-    <circle cx="12" cy="12" r="8" />
-  </svg>
-);
-
 const IconChevronDown = ({ className = "h-4 w-4" }: IconProps) => (
   <svg
     className={className}
@@ -918,7 +887,7 @@ const SimConfigModal = ({
           </div>
           <div className="flex flex-col items-start gap-2 lg:items-end">
             <p className="text-xs text-slate-500">
-              Start を押すとミッションが開始します。
+              スタートを押すとミッションが開始します。
             </p>
             <button
               className={`start-cta rounded-full px-6 py-3 text-sm font-semibold transition ${
@@ -959,44 +928,6 @@ const SimConfigModal = ({
           <p className="text-[11px] text-slate-500">
             パラメータから自動判定
           </p>
-        </div>
-
-        <div className="mt-3 rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-200/90 via-amber-100/90 to-yellow-50/80 p-4 text-slate-900 shadow-[0_20px_60px_rgba(250,204,21,0.2)]">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-800">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-amber-300/70 bg-white/70 text-amber-700">
-              <IconTarget className="h-4 w-4" />
-            </span>
-            ミッションの目的
-          </div>
-          <p className="mt-2 text-sm text-slate-800">
-            司令室として介入カードを使い、噂と混乱を抑えつつ公式情報と支援を行き渡らせます。
-          </p>
-          <div className="mt-3 grid gap-2 text-xs text-slate-700 md:grid-cols-3">
-            <div className="rounded-xl border border-amber-300/70 bg-white/70 p-3">
-              <div className="flex items-center gap-2 text-slate-900">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300/70 bg-white/70 text-amber-700">
-                  <IconShield className="h-3.5 w-3.5" />
-                </span>
-                公式到達・要支援到達を上げる
-              </div>
-            </div>
-            <div className="rounded-xl border border-amber-300/70 bg-white/70 p-3">
-              <div className="flex items-center gap-2 text-slate-900">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300/70 bg-white/70 text-amber-700">
-                  <IconAlert className="h-3.5 w-3.5" />
-                </span>
-                噂拡散と混乱度を下げる
-              </div>
-            </div>
-            <div className="rounded-xl border border-amber-300/70 bg-white/70 p-3">
-              <div className="flex items-center gap-2 text-slate-900">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-amber-300/70 bg-white/70 text-amber-700">
-                  <IconTiming className="h-3.5 w-3.5" />
-                </span>
-                介入のタイミングを見極める
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">

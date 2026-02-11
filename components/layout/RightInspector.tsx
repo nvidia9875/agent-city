@@ -27,6 +27,7 @@ const BUILDING_LABELS: Record<BuildingType, string> = {
 const STATUS_LABELS: Record<string, string> = {
   OPEN: "稼働中",
   CLOSED: "閉鎖中",
+  CROWDED: "混雑",
 };
 
 const RightInspector = () => {
@@ -43,6 +44,21 @@ const RightInspector = () => {
     if (!world || !selected.buildingId) return undefined;
     return world.buildings[selected.buildingId];
   }, [selected.buildingId, world]);
+  const buildingCapacity = building?.capacity ?? 0;
+  const buildingOccupancy = Math.max(0, building?.occupancy ?? 0);
+  const buildingRatio =
+    buildingCapacity > 0
+      ? Math.max(0, Math.min(buildingOccupancy / buildingCapacity, 1))
+      : 0;
+  const buildingPercent = Math.round(buildingRatio * 100);
+  const isShelterFocus =
+    building?.type === "SHELTER" || building?.type === "SCHOOL";
+  const occupancyToneClass =
+    buildingRatio >= 0.9
+      ? "bg-rose-400"
+      : buildingRatio >= 0.7
+      ? "bg-amber-300"
+      : "bg-emerald-300";
 
   const agentReasoning = agent ? reasoning[agent.id] : undefined;
 
@@ -159,6 +175,27 @@ const RightInspector = () => {
           <p className="mt-2 text-slate-400">
             状態: {STATUS_LABELS[building.status ?? "OPEN"] ?? "稼働中"}
           </p>
+          {buildingCapacity > 0 ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-xs text-slate-300">
+                <span>{isShelterFocus ? "避難受け入れ" : "収容率"}</span>
+                <span>
+                  {buildingOccupancy}/{buildingCapacity} ({buildingPercent}%)
+                </span>
+              </div>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all ${occupancyToneClass}`}
+                  style={{ width: `${buildingPercent}%` }}
+                />
+              </div>
+              {isShelterFocus ? (
+                <p className="mt-1 text-xs text-slate-400">
+                  避難所利用率: {buildingPercent}%
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <p className="mt-2 text-slate-400">
             角度: {building.rotation ?? 0}°
           </p>

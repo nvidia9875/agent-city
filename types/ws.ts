@@ -9,6 +9,7 @@ import type {
   World,
   SimConfig,
   SimEndSummary,
+  InterventionKind,
 } from "./sim";
 
 export type WsServerMsg =
@@ -33,7 +34,7 @@ export type WsClientMsg =
   | { type: "SET_SPEED"; speed: 1 | 5 | 20 | 60 }
   | {
       type: "INTERVENTION";
-      payload: { kind: string; message?: string; target?: unknown };
+      payload: { kind: InterventionKind; message?: string; target?: unknown };
     }
   | { type: "SELECT_AGENT"; agentId: string }
   | { type: "SELECT_BUILDING"; buildingId: string };

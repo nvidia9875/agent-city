@@ -42,12 +42,41 @@ const parseResourceId = (value?: string) => {
 };
 
 const getIndexEndpointId = () => parseResourceId(process.env.VERTEX_VECTOR_ENDPOINT_ID);
-const getDeployedIndexId = () => process.env.VERTEX_VECTOR_DEPLOYED_INDEX_ID || "";
+const getConfiguredDeployedIndexId = () =>
+  parseResourceId(process.env.VERTEX_VECTOR_DEPLOYED_INDEX_ID);
+const getConfiguredIndexId = () => parseResourceId(process.env.VERTEX_VECTOR_INDEX_ID);
 
-let cachedPublicEndpoint: string | null = null;
+type EndpointInfo = {
+  publicEndpointDomain: string | null;
+  deployedIndexes: Array<{ id: string; indexId?: string }>;
+};
 
-const getPublicEndpointDomain = async () => {
-  if (cachedPublicEndpoint) return cachedPublicEndpoint;
+let cachedEndpointInfo: EndpointInfo | null = null;
+
+const normalizeDeployedIndexes = (value: unknown): EndpointInfo["deployedIndexes"] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const deployed = item as Record<string, unknown>;
+      const id = parseResourceId(
+        (typeof deployed.id === "string" && deployed.id) ||
+          (typeof deployed.deployedIndexId === "string" && deployed.deployedIndexId) ||
+          (typeof deployed.deployed_index_id === "string" &&
+            deployed.deployed_index_id) ||
+          undefined
+      );
+      if (!id) return null;
+      const indexId = parseResourceId(
+        typeof deployed.index === "string" ? deployed.index : undefined
+      );
+      return { id, indexId: indexId || undefined };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+};
+
+const getEndpointInfo = async (): Promise<EndpointInfo | null> => {
+  if (cachedEndpointInfo) return cachedEndpointInfo;
   const project = getProject();
   const location = getVectorLocation();
   const endpointId = getIndexEndpointId();
@@ -60,10 +89,40 @@ const getPublicEndpointDomain = async () => {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return null;
-  const data = (await res.json()) as { publicEndpointDomainName?: string };
-  if (!data.publicEndpointDomainName) return null;
-  cachedPublicEndpoint = data.publicEndpointDomainName;
-  return cachedPublicEndpoint;
+  const data = (await res.json()) as Record<string, unknown>;
+  const publicEndpointDomain =
+    typeof data.publicEndpointDomainName === "string"
+      ? data.publicEndpointDomainName
+      : typeof data.public_endpoint_domain_name === "string"
+        ? data.public_endpoint_domain_name
+        : null;
+  const deployedIndexes = normalizeDeployedIndexes(
+    data.deployedIndexes ?? data.deployed_indexes
+  );
+  cachedEndpointInfo = { publicEndpointDomain, deployedIndexes };
+  return cachedEndpointInfo;
+};
+
+const getPublicEndpointDomain = async () => {
+  const endpoint = await getEndpointInfo();
+  return endpoint?.publicEndpointDomain ?? null;
+};
+
+const resolveDeployedIndexId = async () => {
+  const configured = getConfiguredDeployedIndexId();
+  if (configured) return configured;
+  const endpoint = await getEndpointInfo();
+  if (!endpoint) return "";
+
+  const configuredIndexId = getConfiguredIndexId();
+  if (configuredIndexId) {
+    const matched = endpoint.deployedIndexes.find(
+      (deployed) => deployed.indexId === configuredIndexId
+    );
+    if (matched) return matched.id;
+  }
+
+  return endpoint.deployedIndexes[0]?.id ?? "";
 };
 
 export const upsertVector = async (payload: VectorUpsertPayload) => {
@@ -117,7 +176,7 @@ export const findNeighbors = async (input: {
   const project = getProject();
   const location = getVectorLocation();
   const endpointId = getIndexEndpointId();
-  const deployedIndexId = getDeployedIndexId();
+  const deployedIndexId = await resolveDeployedIndexId();
 
   if (!project) {
     throw new Error("GCP_PROJECT_ID is not set");
@@ -126,7 +185,9 @@ export const findNeighbors = async (input: {
     throw new Error("VERTEX_VECTOR_ENDPOINT_ID is not set");
   }
   if (!deployedIndexId) {
-    throw new Error("VERTEX_VECTOR_DEPLOYED_INDEX_ID is not set");
+    throw new Error(
+      "VERTEX_VECTOR_DEPLOYED_INDEX_ID is not set and no deployed index was found on endpoint"
+    );
   }
 
   const token = await getAccessToken();
@@ -136,7 +197,19 @@ export const findNeighbors = async (input: {
     : `https://${location}-aiplatform.googleapis.com`;
 
   const url = `${baseUrl}/v1/projects/${project}/locations/${location}/indexEndpoints/${endpointId}:findNeighbors`;
-  const body = {
+  const camelBody = {
+    deployedIndexId: deployedIndexId,
+    queries: [
+      {
+        neighborCount: input.neighborCount ?? 10,
+        datapoint: {
+          datapointId: "query",
+          featureVector: input.vector,
+        },
+      },
+    ],
+  };
+  const snakeBody = {
     deployed_index_id: deployedIndexId,
     queries: [
       {
@@ -149,14 +222,25 @@ export const findNeighbors = async (input: {
     ],
   };
 
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(camelBody),
   });
+
+  if (!res.ok && res.status === 400) {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(snakeBody),
+    });
+  }
 
   if (!res.ok) {
     const errorText = await res.text();
@@ -167,15 +251,22 @@ export const findNeighbors = async (input: {
     nearestNeighbors?: Array<{
       neighbors?: Array<{
         distance?: number;
-        datapoint?: { datapointId?: string };
+        datapoint?: { datapointId?: string; datapoint_id?: string };
+      }>;
+    }>;
+    nearest_neighbors?: Array<{
+      neighbors?: Array<{
+        distance?: number;
+        datapoint?: { datapointId?: string; datapoint_id?: string };
       }>;
     }>;
   };
 
-  const neighbors = data.nearestNeighbors?.[0]?.neighbors ?? [];
+  const neighbors =
+    data.nearestNeighbors?.[0]?.neighbors ?? data.nearest_neighbors?.[0]?.neighbors ?? [];
   return neighbors
     .map((neighbor) => ({
-      id: neighbor.datapoint?.datapointId ?? "",
+      id: neighbor.datapoint?.datapointId ?? neighbor.datapoint?.datapoint_id ?? "",
       distance: neighbor.distance ?? 0,
     }))
     .filter((neighbor) => Boolean(neighbor.id));

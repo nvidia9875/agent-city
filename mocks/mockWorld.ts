@@ -297,6 +297,7 @@ const placeBuildings = (
 ) => {
   const buildings: Record<string, Building> = {};
   const occupied = new Set<string>();
+  const targetTotal = Math.max(1, targetCount);
   let id = 1;
   const capacityByType: Partial<Record<BuildingType, number>> = {
     SHELTER: 120,
@@ -329,9 +330,14 @@ const placeBuildings = (
     if (!isBuildable(x, y)) return false;
     const key = `B-${id}`;
     const capacity = capacityByType[type];
-    const occupancy = capacity
+    let occupancy = capacity
       ? Math.floor(capacity * (0.2 + Math.random() * 0.7))
       : undefined;
+    if (type === "SHELTER") {
+      occupancy = 0;
+    } else if (type === "SCHOOL" && typeof occupancy === "number") {
+      occupancy = Math.floor(occupancy * 0.35);
+    }
     let status: Building["status"] = Math.random() > 0.2 ? "OPEN" : "CLOSED";
     if (capacity && occupancy && occupancy / capacity > 0.82) {
       status = "CROWDED";
@@ -350,26 +356,60 @@ const placeBuildings = (
     return true;
   };
 
-  const facilities: Array<[BuildingType, number, number]> = [
-    ["HOSPITAL", Math.floor(width * 0.25), Math.floor(height * 0.25)],
-    ["SCHOOL", Math.floor(width * 0.65), Math.floor(height * 0.3)],
-    ["SHELTER", Math.floor(width * 0.7), Math.floor(height * 0.7)],
-    ["BULLETIN_BOARD", Math.floor(width * 0.3), Math.floor(height * 0.65)],
-    ["CAFE", Math.floor(width * 0.45), Math.floor(height * 0.55)],
-  ];
-
-  facilities.forEach(([type, x, y]) => {
-    if (Object.keys(buildings).length >= targetCount) return;
+  const tryPlaceNearby = (type: BuildingType, x: number, y: number) => {
     const offsets = [
       [0, 0],
       [1, 0],
       [-1, 0],
       [0, 1],
       [0, -1],
+      [2, 0],
+      [-2, 0],
+      [0, 2],
+      [0, -2],
     ];
     for (const [dx, dy] of offsets) {
-      if (addBuilding(type, x + dx, y + dy)) break;
+      if (addBuilding(type, x + dx, y + dy)) {
+        return true;
+      }
     }
+    return false;
+  };
+
+  const forcePlaceFacility = (type: BuildingType, preferredX: number, preferredY: number) => {
+    if (Object.keys(buildings).length >= targetTotal) return false;
+    if (tryPlaceNearby(type, preferredX, preferredY)) return true;
+
+    const fallbackCandidates: Array<{ x: number; y: number; distance: number }> = [];
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        if (!isBuildable(x, y)) continue;
+        fallbackCandidates.push({
+          x,
+          y,
+          distance: Math.abs(x - preferredX) + Math.abs(y - preferredY),
+        });
+      }
+    }
+    fallbackCandidates.sort((a, b) => a.distance - b.distance);
+    for (const candidate of fallbackCandidates) {
+      if (addBuilding(type, candidate.x, candidate.y)) return true;
+    }
+    return false;
+  };
+
+  forcePlaceFacility("SHELTER", Math.floor(width * 0.7), Math.floor(height * 0.7));
+
+  const facilities: Array<[BuildingType, number, number]> = [
+    ["HOSPITAL", Math.floor(width * 0.25), Math.floor(height * 0.25)],
+    ["SCHOOL", Math.floor(width * 0.65), Math.floor(height * 0.3)],
+    ["BULLETIN_BOARD", Math.floor(width * 0.3), Math.floor(height * 0.65)],
+    ["CAFE", Math.floor(width * 0.45), Math.floor(height * 0.55)],
+  ];
+
+  facilities.forEach(([type, x, y]) => {
+    if (Object.keys(buildings).length >= targetTotal) return;
+    tryPlaceNearby(type, x, y);
   });
 
   const houseTypes: BuildingType[] = [
@@ -394,7 +434,7 @@ const placeBuildings = (
   }
 
   for (const candidate of candidates) {
-    if (Object.keys(buildings).length >= targetCount) break;
+    if (Object.keys(buildings).length >= targetTotal) break;
     const type = randomPick(houseTypes);
     addBuilding(type, candidate.x, candidate.y);
   }

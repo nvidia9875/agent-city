@@ -308,6 +308,20 @@ const EntityTooltip = ({ hidden = false }: EntityTooltipProps) => {
     );
   }
 
+  const capacity = data.building.capacity ?? 0;
+  const occupancy = Math.max(0, data.building.occupancy ?? 0);
+  const occupancyRatio =
+    capacity > 0 ? Math.max(0, Math.min(occupancy / capacity, 1)) : 0;
+  const occupancyPercent = Math.round(occupancyRatio * 100);
+  const isShelterFocus =
+    data.building.type === "SHELTER" || data.building.type === "SCHOOL";
+  const gaugeClass =
+    occupancyRatio >= 0.9
+      ? "bg-rose-400"
+      : occupancyRatio >= 0.7
+      ? "bg-amber-300"
+      : "bg-emerald-300";
+
   return (
     <group ref={groupRef} position={[data.x, 0.9, data.z]}>
       <Html center style={{ pointerEvents: "none" }}>
@@ -317,10 +331,26 @@ const EntityTooltip = ({ hidden = false }: EntityTooltipProps) => {
           </p>
           <p className="mt-1 text-slate-300">{data.label.description}</p>
           <p className="mt-2 text-slate-400">状態: {data.status}</p>
-          {data.building.capacity ? (
-            <p className="mt-1 text-slate-400">
-              収容: {data.building.occupancy ?? 0}/{data.building.capacity}
-            </p>
+          {capacity > 0 ? (
+            <div className="mt-2">
+              <div className="flex items-center justify-between text-[10px] text-slate-300">
+                <span>{isShelterFocus ? "避難受け入れ" : "収容率"}</span>
+                <span>
+                  {occupancy}/{capacity} ({occupancyPercent}%)
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all ${gaugeClass}`}
+                  style={{ width: `${occupancyPercent}%` }}
+                />
+              </div>
+              {isShelterFocus ? (
+                <p className="mt-1 text-[10px] text-slate-400">
+                  避難所利用率: {occupancyPercent}%
+                </p>
+              ) : null}
+            </div>
           ) : null}
           <p className="mt-1 text-[10px] text-slate-500">
             クリックで固定 / 空白クリックで解除

@@ -130,6 +130,29 @@ export type TimelineEventType =
   | "INTERVENTION"
   | "ACTIVITY";
 
+export type InterventionKind =
+  | "official_alert"
+  | "open_shelter"
+  | "fact_check"
+  | "support_vulnerable"
+  | "multilingual_broadcast"
+  | "route_guidance"
+  | "rumor_monitoring"
+  | "volunteer_mobilization"
+  | "operations_rebalance"
+  | "triage_dispatch";
+
+export type InterventionComboKey =
+  | "TRUTH_CASCADE"
+  | "EVAC_EXPRESS"
+  | "CARE_CHAIN";
+
+export type TimelineEventMeta = {
+  interventionKind?: InterventionKind;
+  comboKey?: InterventionComboKey;
+  comboLabel?: string;
+};
+
 export type TimelineEvent = {
   id: string;
   tick: number;
@@ -137,6 +160,7 @@ export type TimelineEvent = {
   actors?: string[];
   at?: Vec2;
   message?: string;
+  meta?: TimelineEventMeta;
 };
 
 export type Metrics = {
@@ -156,6 +180,10 @@ export type VectorClusterSummary = {
   count: number;
   representative: string;
   topTypes: Array<{ type: TimelineEventType | "OTHER"; count: number }>;
+  vectorNeighborCount?: number;
+  resolvedNeighborCount?: number;
+  unresolvedNeighborCount?: number;
+  issue?: "NONE" | "EMBEDDING_COOLDOWN" | "NO_NEIGHBORS" | "MISSING_MEMORY_LINKS";
 };
 
 export type VectorRumorOverlap = {
@@ -163,6 +191,41 @@ export type VectorRumorOverlap = {
   rumorSamples: number;
   neighborSamples: number;
   officialLike: number;
+};
+
+export type VectorInsightsDiagnostics = {
+  embedSkipped: number;
+  neighborQueries: number;
+  emptyNeighborResults: number;
+  resolvedNeighborSamples: number;
+  unresolvedNeighborSamples: number;
+};
+
+export type VectorConversationMood = "ESCALATING" | "CONTESTED" | "STABILIZING";
+
+export type VectorConversationTurn = {
+  id: string;
+  speakerId?: string;
+  type: TimelineEventType | "OTHER";
+  text: string;
+  tick?: number;
+  distance?: number;
+};
+
+export type VectorConversationThread = {
+  id: string;
+  title: string;
+  mood: VectorConversationMood;
+  contamination: number;
+  participantCount: number;
+  turnCount: number;
+  tickStart?: number;
+  tickEnd?: number;
+  reversalTick?: number;
+  reversalInterventionTick?: number;
+  lead: string;
+  dominantTypes: Array<{ type: TimelineEventType | "OTHER"; count: number }>;
+  turns: VectorConversationTurn[];
 };
 
 export type VectorInsightsStatus =
@@ -175,8 +238,11 @@ export type VectorInsightsStatus =
 export type VectorInsights = {
   status: VectorInsightsStatus;
   reason?: string;
+  metricsAvailable?: boolean;
   clusters: VectorClusterSummary[];
   rumorOverlap?: VectorRumorOverlap;
+  diagnostics?: VectorInsightsDiagnostics;
+  conversationThreads?: VectorConversationThread[];
 };
 
 export type AgentReasoning = {

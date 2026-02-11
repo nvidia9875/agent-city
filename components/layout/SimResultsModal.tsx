@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { Metrics, SimConfig, SimEndSummary } from "@/types/sim";
+import type {
+  Metrics,
+  SimConfig,
+  SimEndSummary,
+  TimelineEventType,
+  VectorClusterSummary,
+  VectorConversationThread,
+} from "@/types/sim";
 import {
   DISASTER_LABELS,
   TERRAIN_LABELS,
@@ -19,6 +26,9 @@ type SimResultsModalProps = {
 };
 
 type ResultTab = "overview" | "metrics" | "breakdown" | "population" | "vector";
+const REAL_HOURS_PER_SIM_MINUTE = 1;
+const MINUTES_PER_HOUR = 60;
+const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
 
 const formatTick = (tick: number) => {
   const minutes = Math.floor(tick / 60);
@@ -31,6 +41,26 @@ const formatDuration = (seconds: number) => {
   const minutes = Math.floor(rounded / 60);
   const rem = rounded % 60;
   return `${minutes}m${String(rem).padStart(2, "0")}s`;
+};
+
+const formatRealWorldEquivalent = (simulatedMinutes: number) => {
+  const totalRealMinutes = Math.max(
+    0,
+    Math.round(simulatedMinutes * REAL_HOURS_PER_SIM_MINUTE * MINUTES_PER_HOUR)
+  );
+  const days = Math.floor(totalRealMinutes / MINUTES_PER_DAY);
+  const hours = Math.floor((totalRealMinutes % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
+  const minutes = totalRealMinutes % MINUTES_PER_HOUR;
+
+  if (days > 0) {
+    if (hours > 0) return `${days}日${hours}時間`;
+    return `${days}日`;
+  }
+  if (hours > 0) {
+    if (minutes > 0) return `${hours}時間${minutes}分`;
+    return `${hours}時間`;
+  }
+  return `${minutes}分`;
 };
 
 const computeScore = (metrics: Metrics) => {
@@ -417,6 +447,209 @@ const VECTOR_STATUS_LABELS: Record<string, string> = {
   error: "エラー",
 };
 
+const VECTOR_STATUS_TONES: Record<string, string> = {
+  pending: "border-amber-300/40 bg-amber-400/15 text-amber-100",
+  ready: "border-cyan-300/40 bg-cyan-400/15 text-cyan-100",
+  disabled: "border-slate-600/60 bg-slate-800/60 text-slate-300",
+  unavailable: "border-slate-600/60 bg-slate-800/60 text-slate-300",
+  error: "border-rose-300/40 bg-rose-500/15 text-rose-100",
+};
+
+const VECTOR_ISSUE_LABELS: Record<string, string> = {
+  NONE: "リンク正常",
+  EMBEDDING_COOLDOWN: "Embedding待機",
+  NO_NEIGHBORS: "近傍0件",
+  MISSING_MEMORY_LINKS: "ID照合失敗",
+};
+
+const THREAD_MOOD_LABELS: Record<string, string> = {
+  ESCALATING: "炎上中",
+  CONTESTED: "拮抗",
+  STABILIZING: "鎮静化",
+};
+
+const THREAD_MOOD_TONES: Record<string, string> = {
+  ESCALATING: "border-rose-300/40 bg-rose-500/15 text-rose-100",
+  CONTESTED: "border-amber-300/40 bg-amber-500/15 text-amber-100",
+  STABILIZING: "border-emerald-300/40 bg-emerald-500/15 text-emerald-100",
+};
+
+const VECTOR_NARRATIVE_LIMIT = 3;
+
+const trimLine = (text: string, max = 60) =>
+  text.length > max ? `${text.slice(0, max)}…` : text;
+
+const dedupeTextLines = (items: string[]) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const normalized = item.trim();
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+};
+
+const formatThreadTickWindow = (thread: VectorConversationThread) => {
+  if (
+    typeof thread.tickStart === "number" &&
+    typeof thread.tickEnd === "number"
+  ) {
+    return ` (t${thread.tickStart}-t${thread.tickEnd})`;
+  }
+  return "";
+};
+
+const hasDominantType = (
+  thread: VectorConversationThread,
+  targets: TimelineEventType[]
+) =>
+  thread.dominantTypes.some((type) =>
+    targets.includes(type.type as TimelineEventType)
+  );
+
+const isConcernThread = (thread: VectorConversationThread) =>
+  thread.mood === "ESCALATING" ||
+  thread.contamination >= 35 ||
+  hasDominantType(thread, ["RUMOR"]);
+
+const isResolutionThread = (thread: VectorConversationThread) =>
+  thread.mood === "STABILIZING" ||
+  typeof thread.reversalTick === "number" ||
+  hasDominantType(thread, ["CHECKIN", "OFFICIAL", "ALERT"]);
+
+const buildVectorPlayerSummary = (input: {
+  threads: VectorConversationThread[];
+  clusters: VectorClusterSummary[];
+}) => {
+  const conversationHighlights = dedupeTextLines(
+    input.threads
+      .slice(0, VECTOR_NARRATIVE_LIMIT)
+      .map((thread) => `${trimLine(thread.lead, 58)}${formatThreadTickWindow(thread)}`)
+  ).slice(0, VECTOR_NARRATIVE_LIMIT);
+
+  const concernHighlights = dedupeTextLines(
+    input.threads
+      .filter((thread) => isConcernThread(thread))
+      .sort((a, b) => {
+        if (b.contamination !== a.contamination) {
+          return b.contamination - a.contamination;
+        }
+        return b.turnCount - a.turnCount;
+      })
+      .map((thread) => {
+        const tag = thread.contamination >= 60 ? "噂優勢" : "注意";
+        return `${tag}: ${trimLine(thread.lead, 50)}${formatThreadTickWindow(thread)}`;
+      })
+  ).slice(0, VECTOR_NARRATIVE_LIMIT);
+
+  const resolutionHighlights = dedupeTextLines(
+    input.threads
+      .filter((thread) => isResolutionThread(thread))
+      .sort((a, b) => {
+        if (
+          typeof b.reversalTick === "number" &&
+          typeof a.reversalTick !== "number"
+        ) {
+          return 1;
+        }
+        if (
+          typeof a.reversalTick === "number" &&
+          typeof b.reversalTick !== "number"
+        ) {
+          return -1;
+        }
+        return b.turnCount - a.turnCount;
+      })
+      .map((thread) => {
+        if (typeof thread.reversalTick === "number") {
+          return `反転 t${thread.reversalTick}: ${trimLine(thread.lead, 46)}`;
+        }
+        if (hasDominantType(thread, ["CHECKIN"])) {
+          return `安否確認: ${trimLine(thread.lead, 48)}`;
+        }
+        if (hasDominantType(thread, ["OFFICIAL", "ALERT"])) {
+          return `公式浸透: ${trimLine(thread.lead, 48)}`;
+        }
+        return `鎮静化: ${trimLine(thread.lead, 48)}`;
+      })
+  ).slice(0, VECTOR_NARRATIVE_LIMIT);
+
+  const rumorCluster = input.clusters.find((cluster) => cluster.label.includes("噂"));
+  const officialCluster = input.clusters.find(
+    (cluster) =>
+      cluster.label.includes("公式") ||
+      cluster.label.includes("警報") ||
+      cluster.label.includes("安否")
+  );
+
+  return {
+    conversations:
+      conversationHighlights.length > 0
+        ? conversationHighlights
+        : dedupeTextLines(
+            input.clusters
+              .slice(0, VECTOR_NARRATIVE_LIMIT)
+              .map((cluster) => trimLine(cluster.representative, 60))
+          ).slice(0, VECTOR_NARRATIVE_LIMIT),
+    concerns:
+      concernHighlights.length > 0
+        ? concernHighlights
+        : rumorCluster
+          ? [`噂系の会話が${rumorCluster.count}件あり、監視継続が必要です。`]
+          : ["大きな不安拡大は検出されませんでした。"],
+    resolutions:
+      resolutionHighlights.length > 0
+        ? resolutionHighlights
+        : officialCluster
+          ? [`${officialCluster.label.replace("クラスタ", "")}が${officialCluster.count}件あり、収束の兆しがあります。`]
+          : ["解決に向かう会話は次回集計で確認してください。"],
+  };
+};
+
+const buildVectorActionHint = (input: {
+  metrics: Metrics;
+  vectorMetricsAvailable: boolean;
+  rumorScore: number;
+  stabilizationRate: number;
+  hasConcern: boolean;
+}) => {
+  if (!input.vectorMetricsAvailable) {
+    return "Embedding待機が発生したため部分結果です。公式発信と安否確認を優先して次回集計で汚染度を確認してください。";
+  }
+  if (
+    input.rumorScore >= 60 ||
+    input.metrics.rumorSpread > STABILIZE_TARGET.rumorMax
+  ) {
+    return "噂が優勢です。デマ監視とファクトチェックを早めに重ねると沈静化しやすくなります。";
+  }
+  if (input.metrics.vulnerableReach < STABILIZE_TARGET.vulnerableMin) {
+    return "要支援者への到達が不足しています。要支援者支援を優先して到達率を先に底上げしてください。";
+  }
+  if (
+    input.stabilizationRate >= 50 ||
+    input.metrics.officialReach >= STABILIZE_TARGET.officialMin
+  ) {
+    return "収束傾向です。公式発信の頻度を維持し、安否ラインを途切れさせない運用が有効です。";
+  }
+  if (input.hasConcern) {
+    return "不安会話が残っています。公式警報とルート誘導を組み合わせ、噂に先回りしてください。";
+  }
+  return "会話は拮抗しています。次のターンで公式発信を重ね、優勢を固定すると安定化しやすくなります。";
+};
+
+const resolveIssueTone = (issue?: string) => {
+  if (!issue || issue === "NONE") {
+    return "border-emerald-400/40 bg-emerald-500/10 text-emerald-100";
+  }
+  if (issue === "EMBEDDING_COOLDOWN") {
+    return "border-amber-300/40 bg-amber-500/15 text-amber-100";
+  }
+  if (issue === "NO_NEIGHBORS") {
+    return "border-rose-300/40 bg-rose-500/15 text-rose-100";
+  }
+  return "border-orange-300/40 bg-orange-500/15 text-orange-100";
+};
+
 const SimResultsModal = ({
   summary,
   metricsHistory,
@@ -442,9 +675,107 @@ const SimResultsModal = ({
 
   const alertStatus = summary.population.alertStatus;
   const evacStatus = summary.population.evacStatus;
+  const realWorldEquivalent = formatRealWorldEquivalent(summary.simulatedMinutes);
   const vectorInsights = summary.vectorInsights;
   const vectorStatus = vectorInsights?.status ?? "unavailable";
+  const vectorMetricsAvailable =
+    vectorStatus === "ready" ? (vectorInsights?.metricsAvailable ?? true) : true;
   const rumorOverlap = vectorInsights?.rumorOverlap;
+  const vectorReason = vectorInsights?.reason;
+  const vectorDiagnostics = vectorInsights?.diagnostics;
+  const vectorClusters = vectorInsights?.clusters ?? [];
+  const vectorThreads = vectorInsights?.conversationThreads ?? [];
+  const totalClusterMemories = vectorClusters.reduce(
+    (sum, cluster) => sum + cluster.count,
+    0
+  );
+  const totalNeighborCandidates = vectorClusters.reduce(
+    (sum, cluster) => sum + (cluster.vectorNeighborCount ?? 0),
+    0
+  );
+  const totalResolvedNeighbors = vectorClusters.reduce(
+    (sum, cluster) => sum + (cluster.resolvedNeighborCount ?? 0),
+    0
+  );
+  const totalUnresolvedNeighbors = vectorClusters.reduce(
+    (sum, cluster) => sum + (cluster.unresolvedNeighborCount ?? 0),
+    0
+  );
+  const totalThreadTurns = vectorThreads.reduce(
+    (sum, thread) => sum + thread.turnCount,
+    0
+  );
+  const totalThreadParticipants = vectorThreads.reduce(
+    (sum, thread) => sum + thread.participantCount,
+    0
+  );
+  const uniqueThreadParticipants = new Set(
+    vectorThreads.flatMap((thread) =>
+      thread.turns
+        .map((turn) => turn.speakerId)
+        .filter((speakerId): speakerId is string => Boolean(speakerId))
+    )
+  ).size;
+  const participantCountLabel = uniqueThreadParticipants || totalThreadParticipants;
+  const hottestContamination = vectorThreads.reduce(
+    (max, thread) => Math.max(max, thread.contamination),
+    0
+  );
+  const averageContamination =
+    vectorThreads.length > 0
+      ? Math.round(
+          vectorThreads.reduce((sum, thread) => sum + thread.contamination, 0) /
+            vectorThreads.length
+        )
+      : 0;
+  const stabilizingThreads = vectorThreads.filter(
+    (thread) => thread.mood === "STABILIZING"
+  ).length;
+  const stabilizationRate =
+    vectorThreads.length > 0
+      ? Math.round((stabilizingThreads / vectorThreads.length) * 100)
+      : 0;
+  const linkRate =
+    totalNeighborCandidates > 0
+      ? Math.round((totalResolvedNeighbors / totalNeighborCandidates) * 100)
+      : 0;
+  const rumorScore = rumorOverlap?.score ?? 0;
+  const rumorScoreLabel = vectorMetricsAvailable ? `${rumorScore}%` : "N/A";
+  const hottestContaminationLabel = vectorMetricsAvailable
+    ? `${hottestContamination}%`
+    : "N/A";
+  const averageContaminationLabel = vectorMetricsAvailable
+    ? `${averageContamination}%`
+    : "N/A";
+  const stabilizationRateLabel = vectorMetricsAvailable ? `${stabilizationRate}%` : "N/A";
+  const stabilizationDetailLabel = vectorMetricsAvailable
+    ? `鎮静化 ${stabilizingThreads}/${vectorThreads.length}`
+    : "Embedding cooldown中";
+  const rumorBarClass =
+    !vectorMetricsAvailable
+      ? "bg-slate-600"
+      : rumorScore >= 60
+      ? "bg-rose-400"
+      : rumorScore >= 30
+        ? "bg-amber-400"
+        : "bg-emerald-400";
+  const vectorPlayerSummary = buildVectorPlayerSummary({
+    threads: vectorThreads,
+    clusters: vectorClusters,
+  });
+  const vectorConcernCount = vectorThreads.filter((thread) =>
+    isConcernThread(thread)
+  ).length;
+  const vectorActionHint = buildVectorActionHint({
+    metrics: summary.metrics,
+    vectorMetricsAvailable,
+    rumorScore,
+    stabilizationRate,
+    hasConcern: vectorConcernCount > 0,
+  });
+  const statusTone =
+    VECTOR_STATUS_TONES[vectorStatus] ??
+    "border-slate-600/60 bg-slate-800/60 text-slate-300";
   const tabs: Array<{ id: ResultTab; label: string }> = [
     { id: "overview", label: "概要" },
     { id: "metrics", label: "主要指標" },
@@ -465,7 +796,8 @@ const SimResultsModal = ({
           </h2>
           <p className="mt-2 text-xs text-slate-400">
             終了ティック {summary.tick} / 実時間 {formatDuration(summary.durationSeconds)} /
-            仮想時間 {summary.simulatedMinutes.toFixed(1)}分
+            仮想時間 {summary.simulatedMinutes.toFixed(1)}分 / 現実換算{" "}
+            {realWorldEquivalent}（仮想1分=現実{REAL_HOURS_PER_SIM_MINUTE}時間）
           </p>
         </div>
         <div className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-6 py-4 text-center">
@@ -738,62 +1070,255 @@ const SimResultsModal = ({
         ) : null}
 
           {activeTab === "vector" ? (
-          <div className="rounded-2xl border border-slate-800/70 bg-slate-950/60 p-4">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="uppercase tracking-[0.2em]">Vector Insights</span>
-              <span className="text-slate-500">
+          <div className="relative overflow-hidden rounded-2xl border border-cyan-900/70 bg-[radial-gradient(circle_at_12%_8%,rgba(6,182,212,0.2),transparent_40%),radial-gradient(circle_at_90%_0%,rgba(16,185,129,0.14),transparent_38%),rgba(2,6,23,0.92)] p-4">
+            <div className="pointer-events-none absolute -right-16 top-8 h-40 w-40 rounded-full bg-cyan-300/15 blur-3xl" />
+            <div className="pointer-events-none absolute -left-12 bottom-6 h-32 w-32 rounded-full bg-emerald-300/10 blur-3xl" />
+            <div className="relative flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.35em] text-cyan-200/70">
+                  Vector Insights
+                </p>
+                <h3 className="mt-1 text-sm font-semibold text-slate-100">
+                  Tactical Signal Board
+                </h3>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] ${statusTone}`}
+              >
                 {VECTOR_STATUS_LABELS[vectorStatus] ?? vectorStatus}
               </span>
             </div>
             {vectorInsights?.status === "ready" ? (
-              <div className="mt-3 grid gap-3 text-[11px] text-slate-400">
-                <div className="grid gap-2">
-                  {vectorInsights.clusters.map((cluster) => (
-                    <div
-                      key={cluster.label}
-                      className="rounded-xl border border-slate-800/80 bg-slate-950/70 p-3"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-200">{cluster.label}</span>
-                        <span className="text-slate-500">{cluster.count}件</span>
+              <div className="relative mt-4 grid gap-3 text-[11px] text-slate-300">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-xl border border-cyan-900/70 bg-slate-950/75 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                      会話ライン
+                    </p>
+                    <p className="mt-1 text-xl font-semibold text-cyan-100">
+                      {vectorThreads.length}
+                    </p>
+                    <p className="text-[10px] text-slate-500">主要スレッド</p>
+                  </div>
+                  <div className="rounded-xl border border-cyan-900/70 bg-slate-950/75 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                      発話ターン
+                    </p>
+                    <p className="mt-1 text-xl font-semibold text-slate-100">
+                      {totalThreadTurns}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      参加者 {participantCountLabel}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-cyan-900/70 bg-slate-950/75 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                      噂の汚染度
+                    </p>
+                    <p className="mt-1 text-xl font-semibold text-rose-200">{rumorScoreLabel}</p>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                      <div
+                        className={`h-1.5 ${rumorBarClass}`}
+                        style={{ width: `${vectorMetricsAvailable ? rumorScore : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-cyan-900/70 bg-slate-950/75 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">
+                      鎮静化率
+                    </p>
+                    <p className="mt-1 text-xl font-semibold text-emerald-200">
+                      {stabilizationRateLabel}
+                    </p>
+                    <p className="text-[10px] text-slate-500">{stabilizationDetailLabel}</p>
+                  </div>
+                </div>
+
+                {vectorReason ? (
+                  <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+                    補足: {vectorReason}
+                  </div>
+                ) : null}
+
+                <div className="grid gap-2 lg:grid-cols-3">
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/75 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                      どんな会話があったか
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-[11px] text-slate-200">
+                      {vectorPlayerSummary.conversations.length > 0 ? (
+                        vectorPlayerSummary.conversations.map((line) => (
+                          <li key={`conversation-${line}`}>・{line}</li>
+                        ))
+                      ) : (
+                        <li className="text-slate-500">・会話サマリーを作れるデータがありません。</li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/75 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                      不安ポイント
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-[11px] text-amber-100">
+                      {vectorPlayerSummary.concerns.map((line) => (
+                        <li key={`concern-${line}`}>・{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/75 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                      解決の進展
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-[11px] text-emerald-100">
+                      {vectorPlayerSummary.resolutions.map((line) => (
+                        <li key={`resolution-${line}`}>・{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-100">
+                  次の一手: {vectorActionHint}
+                </div>
+
+                <details className="rounded-xl border border-slate-800/80 bg-slate-950/65 p-3 text-[10px] text-slate-400">
+                  <summary className="cursor-pointer list-none text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                    技術詳細を表示
+                  </summary>
+                  <div className="mt-3 grid gap-2 lg:grid-cols-[1.1fr_0.9fr]">
+                    <div className="rounded-xl border border-slate-800/80 bg-slate-950/75 p-3">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-300">噂の汚染度</span>
+                        <span className="font-semibold text-slate-100">{rumorScoreLabel}</span>
                       </div>
-                      <p className="mt-2 text-slate-300">{cluster.representative}</p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-500">
-                        {cluster.topTypes.map((type) => (
-                          <span
-                            key={`${cluster.label}-${type.type}`}
-                            className="rounded-full border border-slate-800/70 bg-slate-900/60 px-2 py-1"
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+                        <div
+                          className={`h-2 ${rumorBarClass}`}
+                          style={{ width: `${vectorMetricsAvailable ? rumorScore : 0}%` }}
+                        />
+                      </div>
+                      {vectorMetricsAvailable ? (
+                        <p className="mt-2 text-[10px] text-slate-500">
+                          噂サンプル {rumorOverlap?.rumorSamples ?? 0}件 / 近傍解決{" "}
+                          {rumorOverlap?.neighborSamples ?? 0}件 / 公式近似{" "}
+                          {rumorOverlap?.officialLike ?? 0}件
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-[10px] text-slate-500">
+                          Embedding cooldown中のため汚染度は未算出です。
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-slate-500">
+                        <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                          クラスタ対象 {totalClusterMemories}
+                        </span>
+                        <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                          近傍候補 {totalNeighborCandidates}
+                        </span>
+                        <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                          接続率 {linkRate}%
+                        </span>
+                        <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                          未接続ID {totalUnresolvedNeighbors}
+                        </span>
+                        <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                          最大汚染度 {hottestContaminationLabel}
+                        </span>
+                        <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                          平均汚染度 {averageContaminationLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-800/80 bg-slate-950/75 p-3">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                        パイプライン診断
+                      </p>
+                      <div className="mt-2 grid grid-cols-2 gap-1.5">
+                        <div className="rounded-lg border border-slate-800/70 bg-slate-900/70 px-2 py-1">
+                          クエリ数 {vectorDiagnostics?.neighborQueries ?? 0}
+                        </div>
+                        <div className="rounded-lg border border-slate-800/70 bg-slate-900/70 px-2 py-1">
+                          Embedding待機 {vectorDiagnostics?.embedSkipped ?? 0}
+                        </div>
+                        <div className="rounded-lg border border-slate-800/70 bg-slate-900/70 px-2 py-1">
+                          近傍0件 {vectorDiagnostics?.emptyNeighborResults ?? 0}
+                        </div>
+                        <div className="rounded-lg border border-slate-800/70 bg-slate-900/70 px-2 py-1">
+                          未接続ID {vectorDiagnostics?.unresolvedNeighborSamples ?? 0}
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {vectorClusters.slice(0, 3).map((cluster) => (
+                          <div
+                            key={`${cluster.label}-${cluster.issue}`}
+                            className="flex items-center justify-between rounded-lg border border-slate-800/70 bg-slate-900/60 px-2 py-1"
                           >
-                            {EVENT_LABELS[type.type] ?? type.type} {type.count}
-                          </span>
+                            <span className="text-slate-500">{cluster.label}</span>
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[10px] ${resolveIssueTone(
+                                cluster.issue
+                              )}`}
+                            >
+                              {VECTOR_ISSUE_LABELS[cluster.issue ?? "NONE"] ?? cluster.issue}
+                            </span>
+                          </div>
                         ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-                <div className="rounded-xl border border-slate-800/80 bg-slate-950/70 p-3">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-300">噂の汚染度</span>
-                    <span className="text-rose-300">
-                      {rumorOverlap?.score ?? 0}%
-                    </span>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      className="h-2 bg-rose-400"
-                      style={{ width: `${rumorOverlap?.score ?? 0}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 text-[10px] text-slate-500">
-                    噂サンプル {rumorOverlap?.rumorSamples ?? 0}件 /
-                    近傍 {rumorOverlap?.neighborSamples ?? 0}件
-                  </p>
-                </div>
+                  {vectorThreads.length > 0 ? (
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      {vectorThreads.map((thread) => (
+                        <div
+                          key={thread.id}
+                          className="rounded-xl border border-cyan-900/70 bg-slate-950/75 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                              {thread.title}
+                            </p>
+                            <span
+                              className={`rounded-full border px-2 py-1 text-[10px] ${
+                                THREAD_MOOD_TONES[thread.mood] ??
+                                "border-slate-500/40 bg-slate-700/30 text-slate-200"
+                              }`}
+                            >
+                              {THREAD_MOOD_LABELS[thread.mood] ?? thread.mood}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-slate-300">{thread.lead}</p>
+                          <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-slate-500">
+                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                              汚染度 {thread.contamination}%
+                            </span>
+                            <span className="rounded-full border border-slate-700/70 bg-slate-900/70 px-2 py-1">
+                              発話 {thread.turnCount}件
+                            </span>
+                            {typeof thread.reversalTick === "number" ? (
+                              <span className="rounded-full border border-emerald-300/45 bg-emerald-500/12 px-2 py-1 text-emerald-100">
+                                反転 t{thread.reversalTick}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </details>
               </div>
             ) : (
-              <p className="mt-3 text-[11px] text-slate-500">
-                Vector Search の集計結果がまだありません。
-              </p>
+              <div className="mt-3 space-y-2 text-[11px]">
+                <p className="text-slate-300">
+                  {vectorStatus === "pending"
+                    ? "Vector Search を集計中です。"
+                    : "Vector Search の集計結果がまだありません。"}
+                </p>
+                {vectorReason ? (
+                  <p className="rounded-lg border border-slate-700/70 bg-slate-950/70 px-2 py-1 text-slate-400">
+                    reason: {vectorReason}
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
         ) : null}

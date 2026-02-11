@@ -11,6 +11,24 @@ export type MemorySource =
   | "reflection"
   | "plan";
 
+let activeSimulationId: string | undefined;
+
+export const setMemoryPipelineSimulationId = (simulationId?: string) => {
+  activeSimulationId = simulationId;
+};
+
+const mergeSimulationMetadata = (
+  metadata?: Record<string, unknown>
+): Record<string, unknown> | undefined => {
+  if (!activeSimulationId) {
+    return metadata;
+  }
+  return {
+    ...(metadata ?? {}),
+    simulation_id: activeSimulationId,
+  };
+};
+
 const buildEventMemory = (agent: Agent, event: TimelineEvent) => {
   const actorLabel = event.actors?.includes(agent.id) ? "自分" : "周囲";
   const message = event.message ?? event.type;
@@ -21,6 +39,12 @@ export const recordEventMemory = async (agent: Agent, event: TimelineEvent) => {
   try {
     const content = buildEventMemory(agent, event);
     const memoryId = crypto.randomUUID();
+    const metadata = mergeSimulationMetadata({
+      tick: event.tick,
+      type: event.type,
+      interventionKind: event.meta?.interventionKind,
+      comboKey: event.meta?.comboKey,
+    });
 
     await saveMemory({
       id: memoryId,
@@ -28,10 +52,7 @@ export const recordEventMemory = async (agent: Agent, event: TimelineEvent) => {
       content,
       sourceType: "event",
       eventId: event.id,
-      metadata: {
-        tick: event.tick,
-        type: event.type,
-      },
+      metadata,
     });
 
     if (process.env.MEMORY_PIPELINE_ENABLED !== "true") return;
@@ -44,6 +65,7 @@ export const recordEventMemory = async (agent: Agent, event: TimelineEvent) => {
       metadata: {
         agentId: agent.id,
         type: event.type,
+        ...(activeSimulationId ? { simulation_id: activeSimulationId } : {}),
       },
     });
   } catch (error) {
@@ -60,12 +82,13 @@ export const recordAgentMemory = async (input: {
 }) => {
   try {
     const memoryId = crypto.randomUUID();
+    const metadata = mergeSimulationMetadata(input.metadata);
     await saveMemory({
       id: memoryId,
       agentId: input.agent.id,
       content: input.content,
       sourceType: input.sourceType,
-      metadata: input.metadata,
+      metadata,
     });
 
     if (process.env.MEMORY_PIPELINE_ENABLED !== "true") return;
@@ -78,6 +101,7 @@ export const recordAgentMemory = async (input: {
       metadata: {
         agentId: input.agent.id,
         type: input.sourceType,
+        ...(activeSimulationId ? { simulation_id: activeSimulationId } : {}),
       },
     });
   } catch (error) {

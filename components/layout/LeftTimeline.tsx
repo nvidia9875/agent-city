@@ -64,7 +64,7 @@ const LeftTimeline = () => {
           </button>
         ))}
       </div>
-      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+      <div className="timeline-scroll fancy-scroll flex-1 space-y-3 overflow-y-auto pr-1.5">
         {filtered.length === 0 ? (
           <p className="text-sm text-slate-500">イベントはまだありません。</p>
         ) : (

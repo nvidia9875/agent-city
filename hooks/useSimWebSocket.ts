@@ -76,7 +76,14 @@ export const useSimWebSocket = () => {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    const explicitMock = process.env.NEXT_PUBLIC_USE_MOCK_WS === "true";
+    const wsUrl =
+      process.env.NEXT_PUBLIC_WS_URL ??
+      (typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${
+            window.location.hostname
+          }:3001`
+        : "ws://localhost:3001");
     const markReady = () => {
       if (readyRef.current) return;
       readyRef.current = true;
@@ -91,68 +98,41 @@ export const useSimWebSocket = () => {
       setConnectionReady(false);
       pendingRef.current = [];
     };
-    const connection = wsUrl
-      ? connectBrowserWs(
-          wsUrl,
-          (msg: WsServerMsg) => {
-            if (msg.type === "WORLD_INIT") {
-              setWorld(msg.world);
-              return;
-            }
-            if (msg.type === "WORLD_DIFF") {
-              applyWorldDiff(msg);
-              return;
-            }
-            if (msg.type === "EVENT_LOG" || msg.type === "EVENT") {
-              addEvent(msg.event);
-              return;
-            }
-            if (msg.type === "METRICS") {
-              setMetrics(msg.metrics, msg.tick);
-              return;
-            }
-            if (msg.type === "SIM_END") {
-              setSimEnd(msg.summary);
-              return;
-            }
-            if (msg.type === "AGENT_REASONING") {
-              setReasoning(msg.payload);
-            }
-          },
-          markReady,
-          markClosed
-        )
-      : (() => {
+    const onIncoming = (msg: WsServerMsg) => {
+      if (msg.type === "WORLD_INIT") {
+        setWorld(msg.world);
+        return;
+      }
+      if (msg.type === "WORLD_DIFF") {
+        applyWorldDiff(msg);
+        return;
+      }
+      if (msg.type === "EVENT_LOG" || msg.type === "EVENT") {
+        addEvent(msg.event);
+        return;
+      }
+      if (msg.type === "METRICS") {
+        setMetrics(msg.metrics, msg.tick);
+        return;
+      }
+      if (msg.type === "SIM_END") {
+        setSimEnd(msg.summary);
+        return;
+      }
+      if (msg.type === "AGENT_REASONING") {
+        setReasoning(msg.payload);
+      }
+    };
+
+    const connection = explicitMock
+      ? (() => {
           logInfo("mock ws connected");
-          return connectMockWs((msg: WsServerMsg) => {
-            if (msg.type === "WORLD_INIT") {
-              setWorld(msg.world);
-              return;
-            }
-            if (msg.type === "WORLD_DIFF") {
-              applyWorldDiff(msg);
-              return;
-            }
-            if (msg.type === "EVENT_LOG" || msg.type === "EVENT") {
-              addEvent(msg.event);
-              return;
-            }
-            if (msg.type === "METRICS") {
-              setMetrics(msg.metrics, msg.tick);
-              return;
-            }
-            if (msg.type === "SIM_END") {
-              setSimEnd(msg.summary);
-              return;
-            }
-            if (msg.type === "AGENT_REASONING") {
-              setReasoning(msg.payload);
-            }
-          });
-        })();
+          return connectMockWs(onIncoming);
+        })()
+      : connectBrowserWs(wsUrl, onIncoming, markReady, markClosed);
 
     sendRef.current = connection.send;
-    if (!wsUrl) {
+    if (explicitMock) {
       markReady();
     }
 

@@ -19,7 +19,7 @@ AgentTown は、災害対応の「予行演習」を可視化する Next.js + Re
 - `server/index.ts` が `WORLD_INIT` / `WORLD_DIFF` / `EVENT` / `METRICS` を WebSocket で配信します。
 - `/sim` 初期表示時に設定モーダルが開き、`INIT_SIM` でサイズ/人数/建物/地形を送信してからシミュレーションを開始します。
 - `mocks/mockWorld.ts` がタイル、建物、住民、脆弱性属性を設定に応じて初期生成します。
-- `NEXT_PUBLIC_WS_URL` が未設定の場合は `mocks/mockWs.ts` を使ってローカル完結で動作します。
+- 既定では `ws://<現在ホスト>:3001` に接続します。`NEXT_PUBLIC_USE_MOCK_WS=true` のときだけ `mocks/mockWs.ts` を使います。
 - DB 設定がある場合、イベントとメトリクスは Cloud SQL に保存されます。
 
 ## AI 連携（Vertex AI + Cloud SQL for MySQL）
@@ -29,6 +29,7 @@ AgentTown は、災害対応の「予行演習」を可視化する Next.js + Re
 - WebSocket サーバーも `.env.local` を読み込みます。
 - `MEMORY_PIPELINE_ENABLED=true` の場合、記憶生成 → Embedding → Vector Search upsert が動作します。
 - `SIM_AI_DECISION_ENABLED=true` を有効にすると、サーバー側で AI が行動を決定します。
+- 吹き出しは既定でルール生成（状態/感情/シナリオ反映）です。`SIM_FORCE_AI_BUBBLE_TEXT=true` のときのみ吹き出しLLMを有効化します。
 - `SIM_ADK_ENABLED=true` の場合、ADK（Agent Development Kit）経由で行動決定を行います（失敗時は Vertex AI 直呼びにフォールバック）。
 
 認証（ADC）
@@ -48,11 +49,24 @@ VERTEX_EMBED_MODEL=gemini-embedding-001
 VERTEX_EMBED_DIM=768
 AI_ENABLED=true
 NEXT_PUBLIC_AI_ENABLED=true
+NEXT_PUBLIC_USE_MOCK_WS=false
 MEMORY_PIPELINE_ENABLED=false
 VERTEX_VECTOR_INDEX_ID=your-index-id
 VERTEX_VECTOR_LOCATION=us-central1
+VERTEX_VECTOR_ENDPOINT_ID=your-endpoint-id
+VERTEX_VECTOR_DEPLOYED_INDEX_ID=your-deployed-id
 SIM_AI_DECISION_ENABLED=false
 SIM_AI_DECISION_COUNT=2
+SIM_FORCE_AI_BUBBLE_TEXT=false
+VERTEX_AI_MODEL_TALK_BUBBLE=gemini-2.5-flash
+SIM_AI_BUBBLE_SAMPLE_RATE=0.35
+SIM_AI_BUBBLE_MAX_INFLIGHT=2
+SIM_AI_BUBBLE_MIN_INTERVAL_MS=1200
+SIM_AI_BUBBLE_GLOBAL_MIN_INTERVAL_MS=500
+SIM_AI_BUBBLE_BACKOFF_MS=10000
+SIM_AI_BUBBLE_BACKOFF_MAX_MS=120000
+SIM_AI_BUBBLE_FALLBACK_MIN_INTERVAL_MS=900
+SIM_AI_BUBBLE_ONLY_AI_AGENTS=false
 SIM_ADK_ENABLED=false
 # ADK (Vertex AI via ADC)
 # GOOGLE_GENAI_USE_VERTEXAI=true
@@ -79,7 +93,8 @@ DB_HOST=127.0.0.1 DB_USER=agenttown DB_PASSWORD=your-password DB_NAME=agenttown 
 
 1. Vertex AI の Vector Search で Index を作成（埋め込み次元は `VERTEX_EMBED_DIM` と一致させる）。
 2. Index ID を控え、`.env.local` の `VERTEX_VECTOR_INDEX_ID` に設定。
-3. 将来的に検索を使う場合は Index Endpoint を作成してデプロイしておく。
+3. Index Endpoint を作成してデプロイし、`VERTEX_VECTOR_ENDPOINT_ID` を設定。
+4. `VERTEX_VECTOR_DEPLOYED_INDEX_ID` を設定（未設定時は endpoint 上の deployed index から自動解決を試行）。
 
 ## Terraform（GCP）
 

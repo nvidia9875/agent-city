@@ -14,7 +14,7 @@ const BUBBLE_MAX_CHARS = 160;
 const BUBBLE_WINDOW_SECONDS = 10;
 const BUBBLE_MIN_VISIBLE_SECONDS = 5;
 const BUBBLE_START_OFFSET_MAX = 5;
-const BUBBLE_POPULATION_RATIO = 0.03;
+const BUBBLE_POPULATION_RATIO = 0.08;
 const BUBBLE_MAX_VISIBLE = 5;
 
 const clampStyle: CSSProperties = {
@@ -129,7 +129,11 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
     const nextCandidates: Array<{ id: string; score: number }> = [];
     const visibleCandidates: Array<{ id: string; score: number }> = [];
     let visibleCount = 0;
-    bubbleAgents.forEach((agent) => {
+    const displayAgents = bubbleAgents;
+    const populationRatio = BUBBLE_POPULATION_RATIO;
+    const maxVisible = BUBBLE_MAX_VISIBLE;
+
+    displayAgents.forEach((agent) => {
       if (offsetRefs.current[agent.id] === undefined) {
         offsetRefs.current[agent.id] = Math.random() * BUBBLE_START_OFFSET_MAX;
       }
@@ -148,7 +152,7 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
           }
         } else {
           const score = hashSeed(`${agent.id}:${windowIndex}`);
-          const eligible = score / 2 ** 32 < BUBBLE_POPULATION_RATIO;
+          const eligible = score / 2 ** 32 < populationRatio;
           if (eligible) {
             nextCandidates.push({ id: agent.id, score });
           }
@@ -164,9 +168,9 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
       }
     });
 
-    if (nextCandidates.length > 0 && visibleCount < BUBBLE_MAX_VISIBLE) {
+    if (nextCandidates.length > 0 && visibleCount < maxVisible) {
       nextCandidates.sort((a, b) => a.score - b.score);
-      const slots = Math.min(BUBBLE_MAX_VISIBLE - visibleCount, nextCandidates.length);
+      const slots = Math.min(maxVisible - visibleCount, nextCandidates.length);
       for (let i = 0; i < slots; i += 1) {
         const id = nextCandidates[i].id;
         visibilityRefs.current[id] = true;
@@ -179,7 +183,7 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
       }
     }
 
-    if (visibleCandidates.length > BUBBLE_MAX_VISIBLE) {
+    if (visibleCandidates.length > maxVisible) {
       visibleCandidates.sort((a, b) => a.score - b.score);
       const protectedIds = new Set(
         visibleCandidates
@@ -191,7 +195,7 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
       );
       const allowed = new Set<string>(protectedIds);
       visibleCandidates.forEach((entry) => {
-        if (allowed.size >= BUBBLE_MAX_VISIBLE) return;
+        if (allowed.size >= maxVisible) return;
         if (!protectedIds.has(entry.id)) {
           allowed.add(entry.id);
         }
@@ -207,7 +211,7 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
       }
     }
 
-    const visibleNow = bubbleAgents
+    const visibleNow = displayAgents
       .filter((agent) => visibilityRefs.current[agent.id])
       .map((agent) => agent.id)
       .sort();
@@ -225,9 +229,9 @@ const AgentBubbles = ({ hidden = false }: AgentBubblesProps) => {
       const group = groupRefs.current[id];
       const agent = bubbleById.get(id);
       if (!group || !agent) return;
-      if (textRefs.current[id] === undefined) {
-        const nextText = bubbleTextById.get(id) ?? "";
-        textRefs.current[id] = nextText;
+      const latestText = bubbleTextById.get(id) ?? "";
+      if (textRefs.current[id] !== latestText) {
+        textRefs.current[id] = latestText;
         updated = true;
       }
       nextVisibleText[id] = textRefs.current[id] ?? agent.bubble;
