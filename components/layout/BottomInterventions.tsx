@@ -20,6 +20,15 @@ type BottomInterventionsProps = {
   maxPoints?: number;
   currentTick?: number;
   cooldowns?: Record<string, number>;
+  interventionUseLimit?: number;
+  interventionsRemaining?: number;
+  pointRecovery?: {
+    active: boolean;
+    amountPerCycle: number;
+    cycleTicks: number;
+    ticksUntilNext: number;
+    progressPercent: number;
+  };
 };
 
 const INTERVENTION_BALANCE: Record<
@@ -279,6 +288,15 @@ const BottomInterventions = ({
   maxPoints,
   currentTick = 0,
   cooldowns = {},
+  interventionUseLimit = 10,
+  interventionsRemaining = 0,
+  pointRecovery = {
+    active: false,
+    amountPerCycle: 0,
+    cycleTicks: 0,
+    ticksUntilNext: 0,
+    progressPercent: 0,
+  },
 }: BottomInterventionsProps) => {
   const interventions = INTERVENTION_SETS[disaster];
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -290,12 +308,30 @@ const BottomInterventions = ({
       : Math.max(points, 1);
   const pointRatio = Math.max(0, Math.min(points / gaugeMax, 1));
   const pointPercent = Math.round(pointRatio * 100);
-  const gaugeToneClass =
+  const pointValueToneClass =
+    pointRatio <= 0.25
+      ? "text-rose-200"
+      : pointRatio <= 0.55
+      ? "text-amber-200"
+      : "text-emerald-200";
+  const pointGaugeToneClass =
     pointRatio <= 0.25
       ? "from-rose-400 to-rose-500"
       : pointRatio <= 0.55
       ? "from-amber-300 to-amber-400"
       : "from-emerald-300 to-emerald-400";
+  const useRatio =
+    interventionUseLimit > 0
+      ? Math.max(0, Math.min(interventionsRemaining / interventionUseLimit, 1))
+      : 0;
+  const usePercent = Math.round(useRatio * 100);
+  const useGaugeToneClass =
+    useRatio <= 0.25
+      ? "from-rose-400 to-rose-500"
+      : useRatio <= 0.55
+      ? "from-amber-300 to-amber-400"
+      : "from-emerald-300 to-emerald-400";
+  const recoveryPercent = Math.max(0, Math.min(pointRecovery.progressPercent, 100));
 
   const updateScrollState = () => {
     const container = scrollRef.current;
@@ -329,37 +365,71 @@ const BottomInterventions = ({
 
   return (
     <section className="rounded-3xl border border-slate-800/60 bg-slate-950/80 p-4 text-slate-100 backdrop-blur">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
         <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
           介入パネル
         </h2>
-        <span className="text-xs text-slate-400">クールダウン管理</span>
       </div>
-      <div className="mt-3 rounded-2xl border border-slate-800/70 bg-slate-900/45 p-3">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-              介入ポイント
-            </p>
-            <p className="mt-1 text-2xl font-semibold leading-none text-emerald-200">
-              {points}
-              <span className="ml-2 text-sm font-medium text-slate-400">
-                / {gaugeMax}
-              </span>
-            </p>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-800/70 bg-slate-900/45 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-slate-400">残り介入ポイント</span>
+            <span className={`font-semibold tabular-nums ${pointValueToneClass}`}>
+              {points}/{gaugeMax}
+            </span>
           </div>
-          <span className="rounded-full border border-slate-700/70 bg-slate-950/60 px-3 py-1 text-xs font-semibold text-slate-300">
-            {pointPercent}%
-          </span>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-950/70">
+            <div
+              className={`h-full rounded-full bg-gradient-to-r transition-all duration-300 ${pointGaugeToneClass}`}
+              style={{ width: `${pointPercent}%` }}
+            />
+          </div>
         </div>
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-950/70">
-          <div
-            className={`h-full rounded-full bg-gradient-to-r transition-all duration-300 ${gaugeToneClass}`}
-            style={{ width: `${pointPercent}%` }}
-          />
+        <div className="rounded-xl border border-slate-800/70 bg-slate-900/45 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-slate-400">ポイント回復</span>
+            <span
+              className={`font-semibold tabular-nums ${
+                pointRecovery.active ? "text-cyan-200" : "text-slate-500"
+              }`}
+            >
+              {pointRecovery.active
+                ? `${pointRecovery.cycleTicks}秒ごとに +${pointRecovery.amountPerCycle}pt`
+                : "満タン"}
+            </span>
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-950/70">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-emerald-300 transition-all duration-300"
+              style={{ width: `${recoveryPercent}%` }}
+            />
+          </div>
+          <p className="mt-1 text-[10px] text-slate-400">
+            {pointRecovery.active
+              ? `次回回復まで ${pointRecovery.ticksUntilNext}秒`
+              : "ポイント最大値"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-800/70 bg-slate-900/45 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-slate-400">残り介入回数</span>
+            <span
+              className={`font-semibold tabular-nums ${
+                interventionsRemaining > 0 ? "text-emerald-200" : "text-rose-200"
+              }`}
+            >
+              {interventionsRemaining}/{interventionUseLimit}
+            </span>
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-950/70">
+            <div
+              className={`h-full rounded-full bg-gradient-to-r transition-all duration-300 ${useGaugeToneClass}`}
+              style={{ width: `${usePercent}%` }}
+            />
+          </div>
         </div>
       </div>
-      <div className="relative mt-4">
+      <div className="relative mt-3">
         <div
           className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-10 bg-gradient-to-r from-slate-950/80 to-transparent transition ${
             canScrollLeft ? "opacity-100" : "opacity-0"
@@ -381,7 +451,9 @@ const BottomInterventions = ({
             const remaining = Math.max(0, nextAvailable - currentTick);
             const onCooldown = remaining > 0;
             const pointsShort = points < intervention.cost;
-            const blocked = disabled || onCooldown || pointsShort;
+            const noUsesRemaining = interventionsRemaining <= 0;
+            const blocked = disabled || onCooldown || pointsShort || noUsesRemaining;
+
             return (
               <button
                 key={intervention.kind}
@@ -415,6 +487,11 @@ const BottomInterventions = ({
                     {pointsShort ? (
                       <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-rose-200">
                         ポイント不足
+                      </span>
+                    ) : null}
+                    {noUsesRemaining ? (
+                      <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-1 text-rose-200">
+                        使用回数上限
                       </span>
                     ) : null}
                   </div>

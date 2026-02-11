@@ -37,6 +37,18 @@ const computeScore = (metrics: Metrics) => {
   return Math.max(0, Math.min(100, Math.round(metrics.stabilityScore)));
 };
 
+const STABILIZE_TARGET = {
+  confusionMax: 40,
+  rumorMax: 32,
+  officialMin: 65,
+  vulnerableMin: 55,
+  panicMax: 45,
+  trustMin: 55,
+  misinfoMax: 30,
+  misallocationMax: 40,
+  stabilityMin: 65,
+};
+
 const getScoreGrade = (score: number) => {
   if (score >= 85) {
     return { label: "Sランク", tone: "text-emerald-200" };
@@ -121,24 +133,168 @@ const buildSparkPath = (data: number[], width: number, height: number) => {
     .join(" ");
 };
 
-const OutcomeBadge = ({ reason }: { reason: SimEndSummary["reason"] }) => {
+const buildMissionChecks = (metrics: Metrics) => [
+  {
+    key: "officialReach",
+    label: "公式到達",
+    current: metrics.officialReach,
+    target: `${STABILIZE_TARGET.officialMin}以上`,
+    ok: metrics.officialReach >= STABILIZE_TARGET.officialMin,
+  },
+  {
+    key: "vulnerableReach",
+    label: "要支援到達",
+    current: metrics.vulnerableReach,
+    target: `${STABILIZE_TARGET.vulnerableMin}以上`,
+    ok: metrics.vulnerableReach >= STABILIZE_TARGET.vulnerableMin,
+  },
+  {
+    key: "confusion",
+    label: "混乱度",
+    current: metrics.confusion,
+    target: `${STABILIZE_TARGET.confusionMax}以下`,
+    ok: metrics.confusion <= STABILIZE_TARGET.confusionMax,
+  },
+  {
+    key: "rumorSpread",
+    label: "噂拡散",
+    current: metrics.rumorSpread,
+    target: `${STABILIZE_TARGET.rumorMax}以下`,
+    ok: metrics.rumorSpread <= STABILIZE_TARGET.rumorMax,
+  },
+  {
+    key: "panicIndex",
+    label: "パニック",
+    current: metrics.panicIndex,
+    target: `${STABILIZE_TARGET.panicMax}以下`,
+    ok: metrics.panicIndex <= STABILIZE_TARGET.panicMax,
+  },
+  {
+    key: "trustIndex",
+    label: "公式信頼",
+    current: metrics.trustIndex,
+    target: `${STABILIZE_TARGET.trustMin}以上`,
+    ok: metrics.trustIndex >= STABILIZE_TARGET.trustMin,
+  },
+  {
+    key: "misinfoBelief",
+    label: "誤情報信念",
+    current: metrics.misinfoBelief,
+    target: `${STABILIZE_TARGET.misinfoMax}以下`,
+    ok: metrics.misinfoBelief <= STABILIZE_TARGET.misinfoMax,
+  },
+  {
+    key: "resourceMisallocation",
+    label: "誤配分",
+    current: metrics.resourceMisallocation,
+    target: `${STABILIZE_TARGET.misallocationMax}以下`,
+    ok: metrics.resourceMisallocation <= STABILIZE_TARGET.misallocationMax,
+  },
+  {
+    key: "stabilityScore",
+    label: "安定度スコア",
+    current: metrics.stabilityScore,
+    target: `${STABILIZE_TARGET.stabilityMin}以上`,
+    ok: metrics.stabilityScore >= STABILIZE_TARGET.stabilityMin,
+  },
+];
+
+const minGap = (value: number, min: number) => Math.max(0, min - value);
+const maxGap = (value: number, max: number) => Math.max(0, value - max);
+
+const resolveTimeLimitFeedback = (metrics: Metrics) => {
+  const checks = buildMissionChecks(metrics);
+  const unmetCount = checks.filter((check) => !check.ok).length;
+  const communicationGap =
+    minGap(metrics.officialReach, STABILIZE_TARGET.officialMin) +
+    minGap(metrics.vulnerableReach, STABILIZE_TARGET.vulnerableMin);
+  const rumorGap =
+    maxGap(metrics.confusion, STABILIZE_TARGET.confusionMax) +
+    maxGap(metrics.rumorSpread, STABILIZE_TARGET.rumorMax);
+  const trustGap =
+    minGap(metrics.trustIndex, STABILIZE_TARGET.trustMin) +
+    maxGap(metrics.misinfoBelief, STABILIZE_TARGET.misinfoMax);
+  const operationsGap =
+    maxGap(metrics.panicIndex, STABILIZE_TARGET.panicMax) +
+    maxGap(metrics.resourceMisallocation, STABILIZE_TARGET.misallocationMax);
+  const stabilityGap = minGap(metrics.stabilityScore, STABILIZE_TARGET.stabilityMin);
+
+  if (unmetCount <= 2 && stabilityGap <= 8) {
+    return {
+      pattern: "判定: あと一歩",
+      desc: "複数指標は閾値付近まで到達しましたが、終盤の維持が足りませんでした。",
+      tip: "終盤に未達の1〜2指標へ介入を集中すると安定化に届きやすくなります。",
+    };
+  }
+
+  const dominant = [
+    { key: "communication", score: communicationGap },
+    { key: "rumor", score: rumorGap },
+    { key: "trust", score: trustGap },
+    { key: "operations", score: operationsGap },
+  ].sort((a, b) => b.score - a.score)[0];
+
+  if (dominant.key === "communication") {
+    return {
+      pattern: "判定: 情報到達不足",
+      desc: "公式情報と要支援者への到達が不足し、収束条件に届きませんでした。",
+      tip: "序盤で公式警報・多言語配信・要支援者支援を優先してください。",
+    };
+  }
+  if (dominant.key === "rumor") {
+    return {
+      pattern: "判定: 噂過熱",
+      desc: "噂拡散と混乱度が高止まりし、安定化ラインを超えられませんでした。",
+      tip: "デマ監視とファクトチェックの重ね掛けを早めると抑制しやすくなります。",
+    };
+  }
+  if (dominant.key === "trust") {
+    return {
+      pattern: "判定: 信頼回復遅れ",
+      desc: "公式信頼の回復が遅く、誤情報信念の低下が不十分でした。",
+      tip: "公式発信の頻度を維持しつつ、誤情報訂正を継続すると改善しやすいです。",
+    };
+  }
+  if (dominant.key === "operations") {
+    return {
+      pattern: "判定: 運用分散",
+      desc: "パニックと支援誤配分が残り、避難運用が安定しませんでした。",
+      tip: "ルート誘導と支援系介入を合わせて、現場の流れを先に整えてください。",
+    };
+  }
+
+  return {
+    pattern: "判定: あと一歩",
+    desc: "時間内に安定化しきれませんでした。",
+    tip: "未達指標を1つずつ優先して押し上げると再現性が上がります。",
+  };
+};
+
+const OutcomeBadge = ({ summary }: { summary: SimEndSummary }) => {
+  const timeLimitFeedback = resolveTimeLimitFeedback(summary.metrics);
   const config = {
     STABILIZED: {
       label: "安定化達成",
       tone: "from-emerald-400/30 to-emerald-500/10 text-emerald-200",
       desc: "混乱と噂が沈静化しました。",
+      pattern: "判定: 安定化達成",
+      tip: "現状の介入順序は有効です。再現できるか別条件でも確認してみてください。",
     },
     TIME_LIMIT: {
       label: "タイムアップ",
       tone: "from-amber-300/30 to-amber-500/10 text-amber-200",
-      desc: "時間内に安定化しきれませんでした。",
+      desc: timeLimitFeedback.desc,
+      pattern: timeLimitFeedback.pattern,
+      tip: timeLimitFeedback.tip,
     },
     ESCALATED: {
       label: "危機拡大",
       tone: "from-rose-400/30 to-rose-500/10 text-rose-200",
       desc: "噂と混乱が閾値を超えました。",
+      pattern: "判定: 危機拡大",
+      tip: "初動を前倒しし、噂拡散を最優先で抑えると立て直しやすくなります。",
     },
-  }[reason];
+  }[summary.reason];
 
   return (
     <div
@@ -149,6 +305,8 @@ const OutcomeBadge = ({ reason }: { reason: SimEndSummary["reason"] }) => {
       </p>
       <h3 className="mt-2 text-base font-semibold">{config.label}</h3>
       <p className="mt-1 text-xs text-slate-300">{config.desc}</p>
+      <p className="mt-2 text-[11px] font-semibold text-slate-200">{config.pattern}</p>
+      <p className="mt-1 text-[11px] text-slate-400">{config.tip}</p>
     </div>
   );
 };
@@ -345,7 +503,7 @@ const SimResultsModal = ({
           {activeTab === "overview" ? (
           <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
             <div className="grid gap-3">
-              <OutcomeBadge reason={summary.reason} />
+              <OutcomeBadge summary={summary} />
               <div className="grid grid-cols-2 gap-2">
                 <MetricCard
                   compact
@@ -387,45 +545,19 @@ const SimResultsModal = ({
                   ミッション結果
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-400">
-                  {[
-                    {
-                      label: "公式到達 70以上",
-                      ok: summary.metrics.officialReach >= 70,
-                    },
-                    {
-                      label: "要支援到達 60以上",
-                      ok: summary.metrics.vulnerableReach >= 60,
-                    },
-                    {
-                      label: "混乱度 35以下",
-                      ok: summary.metrics.confusion <= 35,
-                    },
-                    {
-                      label: "噂拡散 25以下",
-                      ok: summary.metrics.rumorSpread <= 25,
-                    },
-                    {
-                      label: "パニック 40以下",
-                      ok: summary.metrics.panicIndex <= 40,
-                    },
-                    {
-                      label: "公式信頼 60以上",
-                      ok: summary.metrics.trustIndex >= 60,
-                    },
-                    {
-                      label: "誤情報信念 25以下",
-                      ok: summary.metrics.misinfoBelief <= 25,
-                    },
-                    {
-                      label: "誤配分 35以下",
-                      ok: summary.metrics.resourceMisallocation <= 35,
-                    },
-                  ].map((mission) => (
+                  {buildMissionChecks(summary.metrics).map((mission) => (
                     <div
-                      key={mission.label}
+                      key={mission.key}
                       className="flex items-center justify-between rounded-xl border border-slate-800/70 bg-slate-950/70 px-3 py-2"
                     >
-                      <span className="text-slate-300">{mission.label}</span>
+                      <div>
+                        <p className="text-slate-300">
+                          {mission.label} {mission.target}
+                        </p>
+                        <p className="text-[10px] text-slate-500">
+                          現在値 {mission.current}
+                        </p>
+                      </div>
                       <span
                         className={`text-xs font-semibold ${
                           mission.ok ? "text-emerald-200" : "text-slate-500"

@@ -997,9 +997,6 @@ const SimConfigModal = ({
               </div>
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-slate-700">
-            人数と建物は研究規模をWeb向けに縮小したプリセットです。
-          </p>
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">

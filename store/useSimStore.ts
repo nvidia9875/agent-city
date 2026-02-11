@@ -170,7 +170,7 @@ export const useSimStore = create<SimState>((set, get) => ({
       hovered: {},
       reasoning: {},
       sim: { ended: false, summary: undefined },
-      ui: { ...state.ui, paused: false },
+      ui: { ...state.ui, speed: 1, paused: false },
     })),
   selectAgent: (agentId) => {
     const world = get().world;

@@ -3,6 +3,7 @@
 import { useSimStore } from "@/store/useSimStore";
 
 const clampValue = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+const TICK_GAUGE_MAX = 60;
 
 const ringStyle = (value: number, accent: string) => {
   const clamped = clampValue(value);
@@ -23,8 +24,8 @@ const SimStatusDock = () => {
 
   const tick = metricsTick ?? world?.tick ?? 0;
   const stability = metrics?.stabilityScore ?? 0;
-  const tickCycle = tick % 100;
-  const tickProgress = tickCycle;
+  const tickGaugeValue = Math.max(0, Math.min(tick, TICK_GAUGE_MAX));
+  const tickProgress = (tickGaugeValue / TICK_GAUGE_MAX) * 100;
 
   const statusLabel = simEnded ? "終了" : ui.paused ? "一時停止" : "稼働中";
   const statusTone = simEnded
@@ -66,7 +67,7 @@ const SimStatusDock = () => {
               style={ringStyle(tickProgress, "#38bdf8")}
             />
             <div className="absolute inset-[3px] flex items-center justify-center rounded-full border border-slate-800/60 bg-slate-950/90 text-[10px] font-semibold text-slate-200">
-              {tickCycle}
+              {tickGaugeValue}
             </div>
           </div>
           <div>

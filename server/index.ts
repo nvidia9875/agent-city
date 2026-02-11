@@ -53,7 +53,8 @@ const randomId = (prefix: string) =>
   `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
-const minutesToTicks = (minutes: number) => Math.max(0, Math.round(minutes * 60));
+const minutesToTicks = (minutes: number) =>
+  Math.max(0, Math.round(minutes / Math.max(1, minutesPerTick)));
 const manhattan = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 const isVulnerable = (agent: Agent) => agent.profile.vulnerabilityTags.length > 0;
@@ -234,18 +235,18 @@ const DISASTER_EVENT_OVERRIDES: Record<
 };
 
 const SIM_END_MAX_TICKS = 60;
-const SIM_END_STABLE_WINDOW = 30;
-const SIM_END_ESCALATE_WINDOW = 20;
+const SIM_END_STABLE_WINDOW = 12;
+const SIM_END_ESCALATE_WINDOW = 12;
 const SIM_END_STABLE_THRESHOLD = {
-  confusionMax: 35,
-  rumorMax: 25,
-  officialMin: 70,
-  vulnerableMin: 60,
-  panicMax: 40,
-  trustMin: 60,
-  misinfoMax: 25,
-  misallocationMax: 35,
-  stabilityMin: 70,
+  confusionMax: 40,
+  rumorMax: 32,
+  officialMin: 65,
+  vulnerableMin: 55,
+  panicMax: 45,
+  trustMin: 55,
+  misinfoMax: 30,
+  misallocationMax: 40,
+  stabilityMin: 65,
 };
 const SIM_END_ESCALATE_THRESHOLD = {
   confusionMin: 85,
@@ -517,7 +518,7 @@ const buildEndSummary = (
       tick,
       durationTicks,
       durationSeconds,
-      simulatedMinutes: durationTicks / 60,
+      simulatedMinutes: durationTicks * minutesPerTick,
       metrics: current,
       peaks: metricsPeaks,
       eventCounts,
@@ -543,7 +544,7 @@ const buildEndSummary = (
     tick,
     durationTicks,
     durationSeconds,
-    simulatedMinutes: durationTicks / 60,
+    simulatedMinutes: durationTicks * minutesPerTick,
     metrics: current,
     peaks: metricsPeaks,
     eventCounts,
@@ -1539,6 +1540,7 @@ const handleSelectAgent = async (client: WebSocket, agentId: string) => {
 
 const initSimulation = (config: SimConfig) => {
   world = createMockWorld(config);
+  speed = 1;
   paused = false;
   simEnded = false;
   simStartedAt = Date.now();

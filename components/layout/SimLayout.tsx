@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import CityCanvas from "@/components/three/CityCanvas";
 import SimConfigModal from "@/components/layout/SimConfigModal";
 import SimStatusDock from "@/components/layout/SimStatusDock";
@@ -13,6 +13,32 @@ import { useSimStore } from "@/store/useSimStore";
 import type { WsClientMsg } from "@/types/ws";
 import type { SimConfig } from "@/types/sim";
 import { DEFAULT_INTERVENTION_POINTS, DEFAULT_SIM_CONFIG } from "@/utils/simConfig";
+
+const INTERVENTION_USE_LIMIT = 10;
+const POINT_RECOVERY_INTERVAL_TICKS = 5;
+const POINT_RECOVERY_AMOUNT = 8;
+
+type PointState = {
+  value: number;
+  recoveryTick: number;
+};
+
+const settlePointState = (
+  pointState: PointState,
+  currentTick: number,
+  maxPoints: number
+) => {
+  if (currentTick <= pointState.recoveryTick) return pointState;
+  const elapsedTicks = currentTick - pointState.recoveryTick;
+  const intervals = Math.floor(elapsedTicks / POINT_RECOVERY_INTERVAL_TICKS);
+  if (intervals <= 0) return pointState;
+
+  return {
+    value: Math.min(maxPoints, pointState.value + intervals * POINT_RECOVERY_AMOUNT),
+    recoveryTick:
+      pointState.recoveryTick + intervals * POINT_RECOVERY_INTERVAL_TICKS,
+  };
+};
 
 const SimLayout = () => {
   const { send, ready } = useSimWebSocket();
@@ -29,10 +55,36 @@ const SimLayout = () => {
   const [showConfig, setShowConfig] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [hideResults, setHideResults] = useState(false);
-  const [points, setPoints] = useState(DEFAULT_INTERVENTION_POINTS);
+  const [pointState, setPointState] = useState<PointState>({
+    value: DEFAULT_INTERVENTION_POINTS,
+    recoveryTick: 0,
+  });
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
+  const [interventionsRemaining, setInterventionsRemaining] = useState(
+    INTERVENTION_USE_LIMIT
+  );
+  const interventionsRemainingRef = useRef(INTERVENTION_USE_LIMIT);
   const showResults = sim.ended && !hideResults;
   const hasBlockingOverlay = showConfirm || showResults || !started || showConfig;
+  const maxPoints = config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS;
+  const currentTick = metricsTick ?? world?.tick ?? 0;
+  const settledPointState = settlePointState(pointState, currentTick, maxPoints);
+  const points = settledPointState.value;
+  const isRecoveryActive = started && !sim.ended && points < maxPoints;
+  const recoveryTicksIntoCycle = Math.max(
+    0,
+    currentTick - settledPointState.recoveryTick
+  );
+  const ticksUntilNextRecovery = isRecoveryActive
+    ? POINT_RECOVERY_INTERVAL_TICKS - recoveryTicksIntoCycle
+    : 0;
+  const recoveryProgressPercent = isRecoveryActive
+    ? Math.round(
+        (recoveryTicksIntoCycle /
+          POINT_RECOVERY_INTERVAL_TICKS) *
+          100
+      )
+    : 0;
 
   const handleSpeed = (speed: 1 | 5 | 20 | 60) => {
     setSpeed(speed);
@@ -51,8 +103,13 @@ const SimLayout = () => {
     setHideResults(false);
     setShowConfig(false);
     setShowConfirm(false);
-    setPoints(config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS);
+    setPointState({
+      value: config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS,
+      recoveryTick: 0,
+    });
     setCooldowns({});
+    interventionsRemainingRef.current = INTERVENTION_USE_LIMIT;
+    setInterventionsRemaining(INTERVENTION_USE_LIMIT);
     send({ type: "INIT_SIM", config });
   };
 
@@ -143,7 +200,7 @@ const SimLayout = () => {
             onOpenConfig={handleOpenConfig}
           />
         </div>
-        <div className="min-h-0 lg:row-start-2 lg:col-start-1">
+        <div className="min-h-0 lg:row-start-2 lg:row-span-2 lg:col-start-1">
           <LeftTimeline />
         </div>
         <div className="relative min-h-0 overflow-hidden rounded-3xl border border-slate-800/60 bg-slate-950/60 shadow-[0_30px_80px_rgba(8,12,18,0.6)] lg:row-start-2 lg:col-start-2">
@@ -202,24 +259,47 @@ const SimLayout = () => {
             </div>
           ) : null}
         </div>
-        <div className="lg:col-span-2">
+        <div className="min-h-0 lg:row-start-3 lg:col-start-2">
           <BottomInterventions
             disabled={sim.ended}
             disaster={config.disaster}
             points={points}
-            maxPoints={config.interventionPoints ?? DEFAULT_INTERVENTION_POINTS}
-            currentTick={metricsTick ?? world?.tick ?? 0}
+            maxPoints={maxPoints}
+            currentTick={currentTick}
             cooldowns={cooldowns}
+            pointRecovery={{
+              active: isRecoveryActive,
+              amountPerCycle: POINT_RECOVERY_AMOUNT,
+              cycleTicks: POINT_RECOVERY_INTERVAL_TICKS,
+              ticksUntilNext: ticksUntilNextRecovery,
+              progressPercent: recoveryProgressPercent,
+            }}
+            interventionUseLimit={INTERVENTION_USE_LIMIT}
+            interventionsRemaining={interventionsRemaining}
             onIntervention={(intervention) => {
-              const tick = metricsTick ?? world?.tick ?? 0;
+              const tick = currentTick;
               const nextAvailable = cooldowns[intervention.kind] ?? 0;
               if (tick < nextAvailable) return;
               if (points < intervention.cost) return;
-              setPoints((current) => Math.max(0, current - intervention.cost));
+              if (interventionsRemainingRef.current <= 0) return;
+              const nextPoints = Math.max(
+                0,
+                settledPointState.value - intervention.cost
+              );
+              const cooldownEndTick = tick + intervention.cooldown;
+              setPointState({
+                value: nextPoints,
+                recoveryTick: settledPointState.recoveryTick,
+              });
               setCooldowns((current) => ({
                 ...current,
-                [intervention.kind]: tick + intervention.cooldown,
+                [intervention.kind]: cooldownEndTick,
               }));
+              interventionsRemainingRef.current = Math.max(
+                0,
+                interventionsRemainingRef.current - 1
+              );
+              setInterventionsRemaining(interventionsRemainingRef.current);
               send({
                 type: "INTERVENTION",
                 payload: {
