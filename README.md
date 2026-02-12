@@ -126,14 +126,15 @@ Cloud Run では Web アプリと WebSocket サーバーを別サービスで動
 Cloud Run に渡す `--set-secrets` の文字列は次で生成できます。
 
 ```bash
-./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys
+./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.ws.keys
+./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.web.keys
 ```
 
 ### 1) WebSocket サーバーをデプロイ
 
 ```bash
 WS_IMAGE=REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-ws:latest
-SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys)"
+SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.ws.keys)"
 
 docker build -f Dockerfile.ws -t "${WS_IMAGE}" .
 docker push "${WS_IMAGE}"
@@ -151,7 +152,7 @@ gcloud run deploy agenttown-ws \
 
 ```bash
 WEB_IMAGE=REGION-docker.pkg.dev/PROJECT_ID/REPO/agenttown-web:latest
-SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys)"
+SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.web.keys)"
 NEXT_PUBLIC_AI_ENABLED="$(gcloud secrets versions access latest --secret NEXT_PUBLIC_AI_ENABLED)"
 NEXT_PUBLIC_SIM_LOG_LEVEL="$(gcloud secrets versions access latest --secret NEXT_PUBLIC_SIM_LOG_LEVEL)"
 
@@ -172,7 +173,7 @@ gcloud run deploy agenttown-web \
 ### Cloud Build でまとめて実行
 
 `cloudbuild.yaml` は Secret Manager 前提です。
-`NEXT_PUBLIC_AI_ENABLED` / `NEXT_PUBLIC_SIM_LOG_LEVEL` / `NEXT_PUBLIC_WS_URL` を Secret から読み出してビルドし、Cloud Run へは `scripts/gcp/cloud-run-env.keys` の全キーを `--set-secrets` で注入します。
+`NEXT_PUBLIC_AI_ENABLED` / `NEXT_PUBLIC_SIM_LOG_LEVEL` / `NEXT_PUBLIC_WS_URL` を Secret から読み出してビルドし、Cloud Run へは Web/WS で別のキー一覧を `--set-secrets` で注入します（`scripts/gcp/cloud-run-env.web.keys`, `scripts/gcp/cloud-run-env.ws.keys`）。
 
 ```bash
 gcloud builds submit \\

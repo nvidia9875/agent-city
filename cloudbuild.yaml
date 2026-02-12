@@ -2,7 +2,8 @@ substitutions:
   _REGION: us-central1
   _WEB_SERVICE: agenttown-web
   _WS_SERVICE: agenttown-ws
-  _ENV_KEYS_FILE: scripts/gcp/cloud-run-env.keys
+  _WEB_ENV_KEYS_FILE: scripts/gcp/cloud-run-env.web.keys
+  _WS_ENV_KEYS_FILE: scripts/gcp/cloud-run-env.ws.keys
   _SECRET_VERSION: latest
 
 steps:
@@ -35,7 +36,7 @@ steps:
     args:
       - -ceu
       - |
-        SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file "${_ENV_KEYS_FILE}" --version "${_SECRET_VERSION}")"
+        SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file "${_WEB_ENV_KEYS_FILE}" --version "${_SECRET_VERSION}")"
         gcloud run deploy "${_WEB_SERVICE}" \
           --image "${_REGION}-docker.pkg.dev/$PROJECT_ID/agenttown/agenttown-web:latest" \
           --region "${_REGION}" \
@@ -48,7 +49,7 @@ steps:
     args:
       - -ceu
       - |
-        SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file "${_ENV_KEYS_FILE}" --version "${_SECRET_VERSION}")"
+        SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file "${_WS_ENV_KEYS_FILE}" --version "${_SECRET_VERSION}")"
         gcloud run deploy "${_WS_SERVICE}" \
           --image "${_REGION}-docker.pkg.dev/$PROJECT_ID/agenttown/agenttown-ws:latest" \
           --region "${_REGION}" \

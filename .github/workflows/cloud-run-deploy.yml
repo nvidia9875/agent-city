@@ -62,8 +62,10 @@ jobs:
       - name: Build Cloud Run secret mappings
         run: |
           set -euo pipefail
-          SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.keys)"
-          echo "CLOUD_RUN_SECRET_MAPPINGS=${SECRET_MAPPINGS}" >> "${GITHUB_ENV}"
+          WS_SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.ws.keys)"
+          WEB_SECRET_MAPPINGS="$(./scripts/gcp/render-cloud-run-secrets.sh --keys-file scripts/gcp/cloud-run-env.web.keys)"
+          echo "CLOUD_RUN_WS_SECRET_MAPPINGS=${WS_SECRET_MAPPINGS}" >> "${GITHUB_ENV}"
+          echo "CLOUD_RUN_WEB_SECRET_MAPPINGS=${WEB_SECRET_MAPPINGS}" >> "${GITHUB_ENV}"
 
       - name: Load build-time public env from Secret Manager
         run: |
@@ -102,7 +104,7 @@ jobs:
             --allow-unauthenticated \
             "${SA_ARGS[@]}" \
             --clear-env-vars \
-            --set-secrets "${CLOUD_RUN_SECRET_MAPPINGS}"
+            --set-secrets "${CLOUD_RUN_WS_SECRET_MAPPINGS}"
 
       - name: Resolve WebSocket URL
         id: ws_url
@@ -135,4 +137,4 @@ jobs:
             --allow-unauthenticated \
             "${SA_ARGS[@]}" \
             --clear-env-vars \
-            --set-secrets "${CLOUD_RUN_SECRET_MAPPINGS}"
+            --set-secrets "${CLOUD_RUN_WEB_SECRET_MAPPINGS}"
