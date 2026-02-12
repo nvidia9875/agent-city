@@ -48,9 +48,10 @@ const buildPool = () => {
 };
 
 export const isDbConfigured = () => {
-  return Boolean(
-    process.env.DATABASE_URL || (process.env.DB_HOST && process.env.DB_USER)
-  );
+  if (process.env.DATABASE_URL) {
+    return true;
+  }
+  return Boolean(process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME);
 };
 
 export const getPool = () => {

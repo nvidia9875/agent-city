@@ -61,6 +61,8 @@ const logDebug = (...args: unknown[]) => {
     console.log("[sim:debug]", ...args);
   }
 };
+const formatError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 const randomPick = <T,>(items: T[]) =>
   items[Math.floor(Math.random() * items.length)];
@@ -532,7 +534,9 @@ const addEvent = (event: TimelineEvent) => {
   if (eventLog.length > 200) eventLog.pop();
   logDebug("event", { type: event.type, id: event.id, tick: event.tick });
   broadcast({ type: "EVENT", event });
-  void saveEvent(event);
+  void saveEvent(event).catch((error) => {
+    logDebug("saveEvent failed", formatError(error));
+  });
   if (event.actors?.length) {
     event.actors.forEach((actorId) => {
       const agent = activeWorld.agents[actorId];
@@ -1318,7 +1322,9 @@ const tick = () => {
   metrics = computeMetricsFromWorld(world);
   updateMetricPeaks(world.tick, metrics);
   broadcast({ type: "METRICS", metrics, tick: world.tick });
-  void saveMetrics(metrics, world.tick);
+  void saveMetrics(metrics, world.tick).catch((error) => {
+    logDebug("saveMetrics failed", formatError(error));
+  });
 
   const isStable =
     metrics.confusion <= SIM_END_STABLE_THRESHOLD.confusionMax &&

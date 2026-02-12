@@ -101,6 +101,7 @@ AgentTown は、災害対応やイベント運営の「予行演習」をブラ�
 ## AI 連携（将来/実装中）
 - Vertex AI で住民の意思決定理由を生成
 - Cloud SQL（MySQL）に reasoning を保存
+- Cloud SQL へのイベント/メトリクス保存に失敗してもシミュレーションは継続し、WS接続を維持する
 - Terraform / scripts で GCP リソースとシードを準備
 - 記憶生成 → Embedding → Vector Search upsert のパイプラインを用意
 - Embedding が 429/RESOURCE_EXHAUSTED の場合は一定時間スキップしてシミュレーションを継続（`VERTEX_EMBED_COOLDOWN_MS`で調整）
